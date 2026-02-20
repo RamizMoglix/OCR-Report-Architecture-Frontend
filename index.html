@@ -1,0 +1,1365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>OCR Accuracy Pipeline · v7</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=Syne:wght@400;500;600;700;800&display=swap');
+
+:root{
+  --bg:#050710;
+  --s1:#0b0d1a;
+  --s2:#0f1222;
+  --border:#181b2e;
+  --border2:#1e2235;
+  --c-p:#a78bfa;
+  --c-g:#34d399;
+  --c-e:#6ee7b7;
+  --c-b:#38bdf8;
+  --c-a:#fbbf24;
+  --c-c:#22d3ee;
+  --c-r:#fb7185;
+  --c-o:#f97316;
+  --text:#f0f4ff;
+  --dim:#ccd8f0;
+  --muted:#8896b3;
+  --mono:'IBM Plex Mono',monospace;
+  --sans:'Syne',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;overflow:hidden;}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);display:flex;flex-direction:column;}
+
+body::before{
+  content:'';position:fixed;inset:0;z-index:0;
+  background-image:
+    linear-gradient(rgba(167,139,250,0.018) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(167,139,250,0.018) 1px,transparent 1px),
+    linear-gradient(rgba(34,211,238,0.009) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(34,211,238,0.009) 1px,transparent 1px);
+  background-size:80px 80px,80px 80px,20px 20px,20px 20px;
+  pointer-events:none;
+}
+
+/* ── TOPBAR ── */
+.topbar{
+  position:relative;z-index:100;flex-shrink:0;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;height:52px;
+  background:rgba(5,7,16,0.98);
+  border-bottom:1px solid var(--border);
+}
+.tb-left{display:flex;align-items:center;gap:10px;}
+.tb-logo{
+  width:30px;height:30px;border-radius:8px;flex-shrink:0;
+  background:linear-gradient(135deg,var(--c-p),var(--c-c));
+  display:flex;align-items:center;justify-content:center;font-size:13px;
+  box-shadow:0 0 16px rgba(167,139,250,0.4);
+}
+.tb-title{font-size:0.95rem;font-weight:800;letter-spacing:-0.01em;}
+.tb-sub{font-family:var(--mono);font-size:0.58rem;color:var(--muted);margin-top:1px;}
+.tb-right{display:flex;align-items:center;gap:7px;}
+
+.top-btn{
+  display:flex;align-items:center;gap:5px;padding:5px 13px;
+  background:var(--s1);border:1px solid var(--border2);border-radius:30px;
+  cursor:pointer;font-family:var(--mono);font-size:0.62rem;color:var(--muted);transition:all 0.2s;
+}
+.top-btn:hover{border-color:rgba(167,139,250,0.4);color:var(--c-p);}
+.pip{width:6px;height:6px;border-radius:50%;}
+.pip-g{background:var(--c-g);}
+.pip-p{background:var(--c-p);}
+.flow-on .pip-g{animation:blink 1.1s infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.25}}
+
+.mode-tog{display:flex;background:var(--s1);border:1px solid var(--border2);border-radius:30px;padding:3px;gap:2px;}
+.mbtn{padding:5px 17px;border-radius:24px;border:none;cursor:pointer;font-family:var(--sans);font-size:0.73rem;font-weight:700;background:transparent;color:var(--muted);transition:all 0.2s;}
+.mbtn.active{background:linear-gradient(135deg,var(--c-p),var(--c-c));color:#fff;box-shadow:0 0 14px rgba(167,139,250,0.3);}
+
+/* ── VIEWS ── */
+.view{position:relative;z-index:10;flex:1;overflow-y:auto;overflow-x:auto;display:none;}
+.view.active{display:block;}
+
+/* ══════════════════════════════════════════
+   ARCH / BQ SCHEMA BLOCK
+   ══════════════════════════════════════════ */
+.arch-block{
+  width:100%;max-width:960px;
+  border-radius:16px;
+  border:1px solid rgba(34,211,238,0.22);
+  background:var(--s1);
+  overflow:hidden;
+  box-shadow:0 0 50px rgba(34,211,238,0.06);
+}
+.arch-block-top{
+  padding:13px 20px;
+  background:rgba(34,211,238,0.04);
+  border-bottom:1px solid rgba(34,211,238,0.1);
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+}
+.arch-block-icon{width:34px;height:34px;border-radius:8px;background:rgba(34,211,238,0.1);border:1px solid rgba(34,211,238,0.2);display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;}
+.arch-block-title{font-size:0.9rem;font-weight:700;color:var(--c-c);}
+.arch-block-sub{font-family:var(--mono);font-size:0.52rem;color:var(--muted);margin-top:1px;}
+.arch-pills{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;}
+.arch-pill{font-family:var(--mono);font-size:0.5rem;font-weight:600;padding:2px 8px;border-radius:20px;border:1px solid;}
+
+.colflow{display:flex;align-items:stretch;background:rgba(0,0,0,0.18);min-height:480px;}
+.cf-sources{width:160px;flex-shrink:0;padding:16px 12px;border-right:1px solid rgba(255,255,255,0.05);display:flex;flex-direction:column;gap:0;justify-content:space-around;}
+.cf-src{padding:10px 10px;border-radius:9px;border:1px solid;cursor:default;transition:transform 0.18s,box-shadow 0.18s;flex:1;display:flex;flex-direction:column;justify-content:center;margin:4px 0;}
+.cf-src:hover{transform:translateX(3px);}
+.cf-src-icon{font-size:0.95rem;margin-bottom:3px;}
+.cf-src-name{font-family:var(--mono);font-size:0.65rem;font-weight:700;}
+.cf-src-cols{font-family:var(--mono);font-size:0.47rem;margin-top:2px;opacity:0.8;}
+.cf-src-k{border-color:rgba(52,211,153,0.3);background:rgba(52,211,153,0.04);}.cf-src-k .cf-src-name{color:#34d399;}
+.cf-src-m{border-color:rgba(110,231,183,0.3);background:rgba(110,231,183,0.04);}.cf-src-m .cf-src-name{color:#6ee7b7;}
+.cf-src-s{border-color:rgba(251,191,36,0.3);background:rgba(251,191,36,0.04);}.cf-src-s .cf-src-name{color:#fbbf24;}
+.cf-src-p{border-color:rgba(167,139,250,0.3);background:rgba(167,139,250,0.04);}.cf-src-p .cf-src-name{color:#a78bfa;}
+
+.cf-wires{flex:0 0 120px;position:relative;background:rgba(0,0,0,0.1);}
+.cf-wires svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;}
+
+.cf-cols{flex:1;min-width:0;padding:12px 16px 12px 8px;display:flex;flex-direction:column;gap:0;overflow-y:visible;}
+.cf-col{display:flex;align-items:center;gap:7px;padding:4px 7px;border-radius:7px;border:1px solid rgba(255,255,255,0.04);margin-bottom:3px;transition:background 0.15s,transform 0.15s;cursor:default;}
+.cf-col:hover{background:rgba(255,255,255,0.04);transform:translateX(3px);}
+.cf-col.col-flash{animation:colFlash 0.5s ease forwards;}
+@keyframes colFlash{0%{background:rgba(255,255,255,0.1);}100%{background:transparent;}}
+.cf-col-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.cf-col-name{font-family:var(--mono);font-size:0.62rem;font-weight:700;white-space:nowrap;min-width:180px;}
+.cf-col-type{font-family:var(--mono);font-size:0.46rem;font-weight:600;padding:1px 5px;border-radius:4px;flex-shrink:0;}
+.ct-str{background:rgba(167,139,250,0.15);color:#c4b5fd;}
+.ct-int{background:rgba(34,211,238,0.15);color:#67e8f9;}
+.ct-fl{background:rgba(251,191,36,0.15);color:#fde68a;}
+.ct-bl{background:rgba(52,211,153,0.15);color:#6ee7b7;}
+.ct-ts{background:rgba(251,113,133,0.15);color:#fda4af;}
+.cf-col-val{font-family:var(--mono);font-size:0.6rem;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0.75;}
+.cf-col-src{font-family:var(--mono);font-size:0.44rem;font-weight:600;padding:1px 6px;border-radius:20px;border:1px solid;flex-shrink:0;white-space:nowrap;}
+.cf-part{font-family:var(--mono);font-size:0.43rem;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(251,113,133,0.15);color:#fda4af;border:1px solid rgba(251,113,133,0.3);flex-shrink:0;}
+
+@keyframes wireDash{to{stroke-dashoffset:-20;}}
+
+/* ── LIVE CSV TABLE ── */
+.csv-section{border-top:1px solid rgba(255,255,255,0.06);}
+.csv-hdr{display:flex;align-items:center;gap:8px;padding:8px 18px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(0,0,0,0.2);}
+.live-dot{width:7px;height:7px;border-radius:50%;background:#34d399;animation:blink 1s infinite;box-shadow:0 0 6px #34d399;flex-shrink:0;}
+.csv-lbl{font-family:var(--mono);font-size:0.56rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--c-c);}
+.csv-sub{font-family:var(--mono);font-size:0.5rem;color:var(--muted);}
+.csv-scroll{overflow-x:auto;padding:8px 16px 14px;}
+.csv-table{font-family:var(--mono);font-size:0.64rem;border-collapse:separate;border-spacing:0;white-space:nowrap;}
+.csv-table th{padding:5px 10px;text-align:left;font-size:0.52rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,0.08);position:sticky;top:0;background:rgba(11,13,26,0.97);}
+.csv-table td{padding:4px 10px;border-bottom:1px solid rgba(255,255,255,0.04);}
+.csv-table tbody tr.fresh-row{animation:freshIn 0.4s ease forwards;}
+@keyframes freshIn{from{background:rgba(34,211,238,0.07);opacity:0;transform:translateX(-6px);}to{background:transparent;opacity:1;transform:none;}}
+.cv-k{color:#6ee7b7;}.cv-m{color:#a7f3d0;}.cv-p{color:#c4b5fd;}.cv-ts{color:#fda4af;}
+.cv-ok{color:#86efac;font-weight:600;}.cv-err{color:#fca5a5;}.cv-warn{color:#fcd34d;}.cv-null{color:rgba(255,255,255,0.25);font-style:italic;}.cv-num{color:#93c5fd;}
+
+/* ══════════════════════════════════════════
+   FLOWCHART — PHASE-BASED REDESIGN
+   ══════════════════════════════════════════ */
+
+.fc-canvas{
+  display:flex;flex-direction:column;align-items:center;
+  padding:24px 40px 80px;
+  min-width:860px;
+  gap:0;
+}
+
+/* ── Phase Container ── */
+.phase-container{
+  width:100%;max-width:780px;
+  border-radius:14px;
+  border:1.5px solid;
+  overflow:visible;
+  position:relative;
+  padding:0;
+}
+.phase-header{
+  display:flex;align-items:center;gap:8px;
+  padding:8px 16px;
+  border-bottom:1px solid;
+  border-radius:12px 12px 0 0;
+}
+.phase-tag{
+  font-family:var(--mono);font-size:0.48rem;font-weight:800;letter-spacing:0.12em;
+  text-transform:uppercase;padding:2px 8px;border-radius:20px;border:1px solid;
+}
+.phase-title{font-size:0.85rem;font-weight:800;letter-spacing:-0.01em;}
+.phase-sub{font-family:var(--mono);font-size:0.5rem;color:var(--muted);margin-left:auto;}
+.phase-body{padding:12px 14px;display:flex;flex-direction:column;gap:8px;}
+
+/* Phase color themes */
+.phase-purple{border-color:rgba(167,139,250,0.25);background:rgba(167,139,250,0.03);box-shadow:0 0 30px rgba(167,139,250,0.06);}
+.phase-purple .phase-header{background:rgba(167,139,250,0.07);border-color:rgba(167,139,250,0.15);}
+.phase-green{border-color:rgba(52,211,153,0.22);background:rgba(52,211,153,0.02);box-shadow:0 0 30px rgba(52,211,153,0.05);}
+.phase-green .phase-header{background:rgba(52,211,153,0.07);border-color:rgba(52,211,153,0.15);}
+.phase-teal{border-color:rgba(110,231,183,0.22);background:rgba(110,231,183,0.02);box-shadow:0 0 30px rgba(110,231,183,0.05);}
+.phase-teal .phase-header{background:rgba(110,231,183,0.07);border-color:rgba(110,231,183,0.15);}
+.phase-amber{border-color:rgba(251,191,36,0.22);background:rgba(251,191,36,0.02);box-shadow:0 0 30px rgba(251,191,36,0.05);}
+.phase-amber .phase-header{background:rgba(251,191,36,0.07);border-color:rgba(251,191,36,0.15);}
+.phase-cyan{border-color:rgba(34,211,238,0.22);background:rgba(34,211,238,0.02);box-shadow:0 0 30px rgba(34,211,238,0.05);}
+.phase-cyan .phase-header{background:rgba(34,211,238,0.07);border-color:rgba(34,211,238,0.15);}
+
+/* ─ Connector between phases ─ */
+.conn{
+  display:flex;flex-direction:column;align-items:center;
+  position:relative;z-index:5;
+}
+.conn-line{
+  width:3px;position:relative;
+}
+.conn-arrow{font-size:1rem;line-height:1;margin-top:-3px;}
+.conn-label{
+  font-family:var(--mono);font-size:0.6rem;font-weight:600;color:#e0e8ff;
+  padding:3px 12px;border-radius:20px;
+  background:#0e1020;border:1px solid rgba(255,255,255,0.12);
+  white-space:nowrap;margin:3px 0;
+}
+.anim-dot{
+  position:absolute;left:50%;transform:translateX(-50%);
+  width:6px;height:6px;border-radius:50%;
+  animation:adrop 1.8s linear infinite;opacity:0;
+}
+@keyframes adrop{0%{top:0;opacity:0;}8%{opacity:1;}92%{opacity:1;}100%{top:100%;opacity:0;}}
+
+/* ─ Terminal ─ */
+.node-terminal{
+  border-radius:50px;border:2px solid;
+  padding:11px 32px;min-width:240px;
+  text-align:center;font-weight:800;font-size:0.92rem;letter-spacing:0.01em;
+}
+
+/* ─ Process node (compact) ─ */
+.node-process{
+  position:relative;border-radius:9px;border:1.5px solid;
+  padding:10px 14px;
+  transition:box-shadow 0.2s,transform 0.18s;
+}
+.node-process:hover{transform:translateY(-1px);}
+.node-title{font-size:0.88rem;font-weight:800;margin-bottom:5px;display:flex;align-items:center;gap:7px;letter-spacing:-0.01em;}
+.node-sub{font-family:var(--mono);font-size:0.63rem;color:#d0dcf0;line-height:1.6;}
+.node-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px;}
+.node-chip{font-family:var(--mono);font-size:0.55rem;font-weight:700;padding:2px 8px;border-radius:5px;}
+.node-badge{
+  position:absolute;top:-10px;left:14px;
+  font-family:var(--mono);font-size:0.48rem;font-weight:700;
+  padding:2px 10px;border-radius:20px;letter-spacing:0.06em;text-transform:uppercase;
+}
+
+/* ─ I/O parallelogram ─ */
+.node-io{
+  border:1.5px solid;padding:10px 36px;
+  clip-path:polygon(4% 0%,100% 0%,96% 100%,0% 100%);
+  text-align:center;
+}
+.node-io-title{font-size:0.88rem;font-weight:800;margin-bottom:4px;}
+.node-io-sub{font-family:var(--mono);font-size:0.62rem;color:#d0dcf0;line-height:1.5;}
+
+/* ─ Cylinder DB ─ */
+.node-db{
+  position:relative;border:1.5px solid;border-radius:9px;
+  padding:14px 14px 12px;
+}
+.node-db::before{
+  content:'';position:absolute;top:-1px;left:-1px;right:-1px;height:16px;
+  border-radius:7px 7px 0 0;background:currentColor;opacity:0.12;
+}
+.node-db-top{
+  position:absolute;top:0;left:0;right:0;height:14px;
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:0.44rem;font-weight:800;letter-spacing:0.1em;opacity:0.85;text-transform:uppercase;
+}
+.node-db-inner{padding-top:12px;}
+
+/* ─ Decision diamond ─ */
+.decision-row{
+  display:flex;align-items:center;justify-content:center;gap:0;
+  width:100%;
+}
+.decision-wrap{
+  position:relative;
+  display:flex;align-items:center;justify-content:center;
+}
+.node-decision{
+  clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);
+  display:flex;align-items:center;justify-content:center;
+  text-align:center;font-weight:800;font-size:0.82rem;line-height:1.3;
+}
+.branch-right{
+  display:flex;flex-direction:column;align-items:flex-start;
+  gap:4px;padding-left:12px;min-width:180px;
+}
+.branch-right-label{
+  font-family:var(--mono);font-size:0.6rem;font-weight:800;
+  padding:3px 10px;border-radius:20px;border:1.5px solid;white-space:nowrap;
+}
+.branch-right-note{
+  font-family:var(--mono);font-size:0.55rem;color:#94a3b8;line-height:1.5;padding-left:4px;
+}
+.branch-down-label{
+  display:flex;justify-content:center;margin-top:4px;
+}
+.branch-down-label span{
+  font-family:var(--mono);font-size:0.58rem;font-weight:800;
+  padding:2px 10px;border-radius:20px;border:1.5px solid;white-space:nowrap;
+}
+
+/* ─ Inner connector (within phase) ─ */
+.inner-conn{
+  display:flex;flex-direction:column;align-items:center;
+  position:relative;height:16px;
+}
+.inner-conn-line{width:2px;background:rgba(255,255,255,0.15);flex:1;position:relative;}
+.inner-conn-arrow{font-size:0.8rem;line-height:1;margin-top:-2px;color:rgba(255,255,255,0.3);}
+.inner-anim{
+  position:absolute;left:50%;transform:translateX(-50%);
+  width:5px;height:5px;border-radius:50%;
+  animation:adrop 1.4s linear infinite;opacity:0;
+}
+
+/* ─ Status outcomes row ─ */
+.status-row{
+  display:grid;grid-template-columns:repeat(7,1fr);gap:5px;
+  width:100%;margin-top:4px;
+}
+.status-box{
+  border:1.5px dashed;border-radius:8px;
+  padding:7px 5px;text-align:center;
+}
+.status-box-icon{font-size:0.8rem;margin-bottom:2px;}
+.status-box-name{font-family:var(--mono);font-size:0.48rem;font-weight:700;line-height:1.4;margin-bottom:2px;}
+.status-box-desc{font-family:var(--mono);font-size:0.42rem;color:#94a3b8;line-height:1.4;}
+
+/* ─ Phase 2 sub-workflow ─ */
+.sub-workflow{
+  display:flex;flex-direction:column;align-items:center;
+  gap:0;width:100%;
+}
+.sub-split{
+  display:flex;align-items:flex-start;gap:16px;width:100%;justify-content:center;
+}
+.sub-branch-main{display:flex;flex-direction:column;align-items:center;gap:0;flex:1;max-width:340px;}
+.sub-branch-side{
+  display:flex;flex-direction:column;align-items:center;
+  padding-top:20px;min-width:160px;
+}
+.side-dead-box{
+  border:1.5px dashed;border-radius:8px;
+  padding:7px 10px;font-family:var(--mono);font-size:0.6rem;font-weight:600;
+  text-align:center;line-height:1.5;
+}
+
+/* Colour themes for nodes inside phases */
+.t-purple{color:#c4b5fd;border-color:rgba(167,139,250,0.55);background:rgba(167,139,250,0.07);}
+.t-purple:hover{box-shadow:0 0 24px rgba(167,139,250,0.25);}
+.t-green{color:#6efac6;border-color:rgba(52,211,153,0.55);background:rgba(52,211,153,0.06);}
+.t-green:hover{box-shadow:0 0 24px rgba(52,211,153,0.2);}
+.t-teal{color:#a7f3d0;border-color:rgba(110,231,183,0.55);background:rgba(110,231,183,0.06);}
+.t-teal:hover{box-shadow:0 0 24px rgba(110,231,183,0.18);}
+.t-blue{color:#93defe;border-color:rgba(56,189,248,0.55);background:rgba(56,189,248,0.06);}
+.t-blue:hover{box-shadow:0 0 24px rgba(56,189,248,0.18);}
+.t-amber{color:#fde68a;border-color:rgba(251,191,36,0.55);background:rgba(251,191,36,0.05);}
+.t-amber:hover{box-shadow:0 0 24px rgba(251,191,36,0.18);}
+.t-cyan{color:#a5f3fc;border-color:rgba(34,211,238,0.55);background:rgba(34,211,238,0.05);}
+.t-cyan:hover{box-shadow:0 0 24px rgba(34,211,238,0.18);}
+.t-slate{color:#cbd5e1;border-color:rgba(148,163,184,0.4);background:rgba(148,163,184,0.04);}
+.t-red{color:#fca5a5;border-color:rgba(251,113,133,0.5);background:rgba(251,113,133,0.06);}
+
+/* Architecture overlay */
+.arch-overlay{position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;background:rgba(3,4,12,0.93);backdrop-filter:blur(20px);opacity:0;pointer-events:none;transition:opacity 0.25s;}
+.arch-overlay.open{opacity:1;pointer-events:all;}
+.arch-panel{width:min(1060px,95vw);max-height:90vh;overflow-y:auto;background:var(--s1);border:1px solid rgba(167,139,250,0.28);border-radius:20px;box-shadow:0 0 80px rgba(167,139,250,0.14),0 40px 100px rgba(0,0,0,0.8);transform:scale(0.93) translateY(20px);transition:transform 0.3s cubic-bezier(0.34,1.4,0.64,1);overflow:hidden;}
+.arch-overlay.open .arch-panel{transform:scale(1) translateY(0);}
+.arch-panel-top{padding:18px 24px;background:linear-gradient(135deg,rgba(167,139,250,0.08),rgba(34,211,238,0.03));border-bottom:1px solid rgba(255,255,255,0.07);display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10;backdrop-filter:blur(20px);}
+.arch-panel-title{font-size:1rem;font-weight:700;color:#fff;}
+.arch-panel-sub{font-family:var(--mono);font-size:0.54rem;color:var(--muted);margin-top:2px;}
+.arch-close{margin-left:auto;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:0.85rem;transition:all 0.18s;color:#fff;}
+.arch-close:hover{background:rgba(251,113,133,0.2);border-color:var(--c-r);}
+.arch-body{padding:22px 24px 28px;}
+.arch-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;}
+.arch-node{border-radius:12px;border:1px solid;padding:13px 12px;transition:transform 0.2s,box-shadow 0.2s;cursor:default;}
+.arch-node:hover{transform:translateY(-3px);}
+.arch-node-icon{font-size:1.2rem;margin-bottom:5px;}
+.arch-node-name{font-size:0.82rem;font-weight:700;margin-bottom:3px;}
+.arch-node-tech{font-family:var(--mono);font-size:0.52rem;color:var(--muted);margin-bottom:7px;}
+.arch-node-detail{font-family:var(--mono);font-size:0.53rem;color:var(--dim);line-height:1.65;}
+.an-k{border-color:rgba(52,211,153,0.35);background:rgba(52,211,153,0.04);}.an-k .arch-node-name{color:var(--c-g);}
+.an-m{border-color:rgba(110,231,183,0.35);background:rgba(110,231,183,0.04);}.an-m .arch-node-name{color:var(--c-e);}
+.an-s{border-color:rgba(251,191,36,0.35);background:rgba(251,191,36,0.04);}.an-s .arch-node-name{color:var(--c-a);}
+.an-b{border-color:rgba(34,211,238,0.35);background:rgba(34,211,238,0.04);}.an-b .arch-node-name{color:var(--c-c);}
+.arch-divider{font-family:var(--mono);font-size:0.54rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);padding:14px 0 10px;display:flex;align-items:center;gap:10px;}
+.arch-divider::before,.arch-divider::after{content:'';flex:1;height:1px;background:var(--border);}
+.arch-opts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+.arch-opt{padding:12px 13px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);}
+.arch-opt-badge{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:0.49rem;font-weight:700;padding:2px 7px;border-radius:20px;margin-bottom:6px;border:1px solid;}
+.arch-opt-title{font-size:0.72rem;font-weight:700;color:#fff;margin-bottom:4px;}
+.arch-opt-body{font-family:var(--mono);font-size:0.55rem;color:var(--dim);line-height:1.6;}
+.arch-statuses{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+.arch-status{padding:9px 11px;border-radius:10px;border:1px solid;}
+.arch-status-name{font-family:var(--mono);font-size:0.62rem;font-weight:700;margin-bottom:3px;}
+.arch-status-desc{font-family:var(--mono);font-size:0.51rem;color:var(--dim);line-height:1.55;}
+
+/* BIZ VIEW */
+.biz-hero{text-align:center;padding:6px 0 18px;}
+.biz-h{font-size:1.75rem;font-weight:800;letter-spacing:-0.04em;background:linear-gradient(135deg,var(--c-c),var(--c-p));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:5px;}
+.biz-sub{font-family:var(--mono);font-size:0.64rem;color:var(--muted);}
+.pill-row{display:flex;gap:7px;flex-wrap:wrap;justify-content:center;margin-bottom:20px;}
+.pill{display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:30px;border:1px solid;font-family:var(--mono);font-size:0.6rem;font-weight:600;}
+.biz-phase{width:100%;max-width:820px;border-radius:14px;border:1.5px solid;overflow:hidden;margin-bottom:0;}
+.biz-phase-bar{height:3px;width:100%;}
+.biz-phase-hdr{display:flex;align-items:center;gap:10px;padding:11px 18px;border-bottom:1px solid rgba(255,255,255,0.06);}
+.biz-phase-icon{font-size:1.1rem;}
+.biz-phase-title{font-size:0.9rem;font-weight:700;}
+.biz-phase-sub{font-family:var(--mono);font-size:0.56rem;color:var(--muted);margin-top:1px;}
+.biz-phase-badge{margin-left:auto;font-family:var(--mono);font-size:0.54rem;font-weight:600;padding:3px 10px;border-radius:20px;border:1px solid;white-space:nowrap;}
+.biz-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:14px 16px 0;}
+.biz-card{padding:12px 13px;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.06);}
+.biz-card-icon{font-size:1.2rem;margin-bottom:6px;}
+.biz-card-title{font-size:0.78rem;font-weight:700;margin-bottom:5px;}
+.biz-card-text{font-size:0.69rem;color:var(--dim);line-height:1.65;}
+.biz-outcomes{display:flex;gap:8px;padding:10px 16px 14px;flex-wrap:wrap;}
+.biz-outcome{flex:1;min-width:110px;padding:8px 10px;border-radius:9px;border:1px solid;text-align:center;}
+.biz-outcome-val{font-size:0.82rem;font-weight:700;margin-bottom:2px;}
+.biz-outcome-lbl{font-family:var(--mono);font-size:0.52rem;color:var(--muted);}
+.biz-mini-row{display:flex;gap:8px;padding:0 16px 14px;flex-wrap:wrap;}
+.biz-mini{flex:1;min-width:80px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);text-align:center;}
+.biz-mini-v{font-size:1rem;font-weight:700;}
+.biz-mini-l{font-family:var(--mono);font-size:0.5rem;color:var(--muted);margin-top:2px;}
+
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:var(--bg);}
+::-webkit-scrollbar-thumb{background:#1e2545;border-radius:3px;}
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="tb-left">
+    <div class="tb-logo">⟨/⟩</div>
+    <div>
+      <div class="tb-title">OCR Accuracy Pipeline</div>
+      <div class="tb-sub">Kafka → MongoDB → Vendor Classification → BigQuery · 25-field schema</div>
+    </div>
+  </div>
+  <div class="tb-right">
+    <div class="top-btn flow-on" id="flowBtn" onclick="toggleFlow()">
+      <div class="pip pip-g" id="flowPip"></div>
+      <span>Flow</span>
+    </div>
+    <div class="top-btn" style="border-color:rgba(167,139,250,0.4);color:var(--c-p);" onclick="openArch()">
+      <div class="pip pip-p"></div>
+      <span>Architecture</span>
+      <span style="font-size:0.7rem;opacity:0.7;">⤢</span>
+    </div>
+    <div class="mode-tog">
+      <button class="mbtn active" id="btnDev" onclick="setMode('dev')">⟨/⟩ Developer</button>
+      <button class="mbtn" id="btnBiz" onclick="setMode('biz')">📊 Business</button>
+    </div>
+  </div>
+</div>
+
+<!-- ARCHITECTURE OVERLAY -->
+<div class="arch-overlay" id="archOverlay" onclick="closeArchOutside(event)">
+  <div class="arch-panel">
+    <div class="arch-panel-top">
+      <div style="font-size:1.4rem;">🏛️</div>
+      <div>
+        <div class="arch-panel-title">System Architecture Overview</div>
+        <div class="arch-panel-sub">OCR Accuracy Pipeline · 4 systems · 5 phases · 25 BQ columns · 7 status values</div>
+      </div>
+      <div class="arch-close" onclick="closeArch()">✕</div>
+    </div>
+    <div class="arch-body">
+      <div class="arch-grid">
+        <div class="arch-node an-k">
+          <div class="arch-node-icon">📡</div>
+          <div class="arch-node-name">Apache Kafka</div>
+          <div class="arch-node-tech">confluent_kafka · consumer</div>
+          <div class="arch-node-detail">
+            <div>Topic: invoice scan events</div><div>poll timeout: 50ms</div>
+            <div>fetch.min.bytes: 64KB</div><div>max.partition: 4MB</div>
+            <div>queued.min: 200k msgs</div><div>Window: T-1 full day</div>
+          </div>
+        </div>
+        <div class="arch-node an-m">
+          <div class="arch-node-icon">🗄️</div>
+          <div class="arch-node-name">MongoDB</div>
+          <div class="arch-node-tech">motor / asyncio.to_thread</div>
+          <div class="arch-node-detail">
+            <div>Pool: 20–100 connections</div><div>Index: po_id_idx</div>
+            <div>Query: $in (batch 100)</div><div>Project: req/res bodies</div>
+            <div>LRU cache: 5000 entries</div><div>Cache None = no re-query</div>
+          </div>
+        </div>
+        <div class="arch-node an-s">
+          <div class="arch-node-icon">🗃️</div>
+          <div class="arch-node-name">MySQL</div>
+          <div class="arch-node-tech">PyMySQL · connection pool</div>
+          <div class="arch-node-detail">
+            <div>Pool size: 3 connections</div><div>Table: Dim_Sys_Plant</div>
+            <div>Only NOT_FOUND rows</div><div>Deduped GSTINs → 1 query</div>
+            <div>Vertical filter applied</div><div>Company_ID ≠ 1 filter</div>
+          </div>
+        </div>
+        <div class="arch-node an-b">
+          <div class="arch-node-icon">☁️</div>
+          <div class="arch-node-name">Google BigQuery</div>
+          <div class="arch-node-tech">google-cloud-bigquery</div>
+          <div class="arch-node-detail">
+            <div>Table: ocr_accuracy_results</div><div>25-column schema</div>
+            <div>DAY partition on proc_ts</div><div>Streaming insert (async)</div>
+            <div>Batch size: 500 rows</div><div>Auto-created if missing</div>
+          </div>
+        </div>
+      </div>
+      <div class="arch-divider">⚡ Key Optimisations</div>
+      <div class="arch-opts">
+        <div class="arch-opt">
+          <div class="arch-opt-badge" style="color:var(--c-g);border-color:rgba(52,211,153,0.3);background:rgba(52,211,153,0.08);">⚡ N→1 Mongo Queries</div>
+          <div class="arch-opt-title">Batch $in instead of N find_one</div>
+          <div class="arch-opt-body">Collect 100 msgs → one find({$in:[...]}) = 1 round-trip. Up to 100× fewer DB calls.</div>
+        </div>
+        <div class="arch-opt">
+          <div class="arch-opt-badge" style="color:var(--c-b);border-color:rgba(56,189,248,0.3);background:rgba(56,189,248,0.08);">⚡ O(1) LRU Cache</div>
+          <div class="arch-opt-title">OrderedDict replaces list-scan</div>
+          <div class="arch-opt-body">move_to_end() and popitem(last=False) — both O(1). Caches None to prevent re-querying missing po_ids.</div>
+        </div>
+        <div class="arch-opt">
+          <div class="arch-opt-badge" style="color:var(--c-a);border-color:rgba(251,191,36,0.3);background:rgba(251,191,36,0.08);">⚡ MySQL Skip Logic</div>
+          <div class="arch-opt-title">Legit rows never touch MySQL</div>
+          <div class="arch-opt-body">Only PO_ID_NOT_FOUND rows query MySQL. GSTINs deduplicated — always 1 query per batch regardless of count.</div>
+        </div>
+        <div class="arch-opt">
+          <div class="arch-opt-badge" style="color:var(--c-c);border-color:rgba(34,211,238,0.3);background:rgba(34,211,238,0.08);">⚡ Rolling BQ Writes</div>
+          <div class="arch-opt-title">Writes throughout, not at end</div>
+          <div class="arch-opt-body">Every 500 rows → classify + write to BQ → clear buffer. RAM always bounded regardless of daily volume.</div>
+        </div>
+        <div class="arch-opt">
+          <div class="arch-opt-badge" style="color:var(--c-p);border-color:rgba(167,139,250,0.3);background:rgba(167,139,250,0.08);">⚡ Idempotent Resume</div>
+          <div class="arch-opt-title">MAX(kafka_timestamp) offset</div>
+          <div class="arch-opt-body">Safe to restart mid-run. start_from_ms = MAX(ts)+1ms. Never re-inserts already-written rows.</div>
+        </div>
+        <div class="arch-opt">
+          <div class="arch-opt-badge" style="color:var(--c-r);border-color:rgba(251,113,133,0.3);background:rgba(251,113,133,0.08);">⚡ Sync Post-Batch</div>
+          <div class="arch-opt-title">No await inside row builder</div>
+          <div class="arch-opt-body">build_bq_row() and determine_status() are synchronous — eliminates per-row thread dispatch overhead at high throughput.</div>
+        </div>
+      </div>
+      <div class="arch-divider">📋 7 Match Status Values</div>
+      <div class="arch-statuses">
+        <div class="arch-status" style="border-color:rgba(52,211,153,0.3);background:rgba(52,211,153,0.05);">
+          <div class="arch-status-name" style="color:var(--c-g);">✅ MATCHED</div>
+          <div class="arch-status-desc">OCR doc found. Date + total present. time_diff within threshold.</div>
+        </div>
+        <div class="arch-status" style="border-color:rgba(251,113,133,0.3);background:rgba(251,113,133,0.05);">
+          <div class="arch-status-name" style="color:var(--c-r);">❌ PO_ID_NOT_FOUND</div>
+          <div class="arch-status-desc">po_id in Kafka but no matching MongoDB doc. Triggers MySQL classification.</div>
+        </div>
+        <div class="arch-status" style="border-color:rgba(251,113,133,0.3);background:rgba(251,113,133,0.05);">
+          <div class="arch-status-name" style="color:var(--c-r);">⚠️ PO_ID_MISSING_KAFKA</div>
+          <div class="arch-status-desc">Kafka message had no po_id field at all. Skips Mongo → empty row stored.</div>
+        </div>
+        <div class="arch-status" style="border-color:rgba(251,191,36,0.3);background:rgba(251,191,36,0.05);">
+          <div class="arch-status-name" style="color:var(--c-a);">⚠️ MONGO_ALL_EMPTY</div>
+          <div class="arch-status-desc">Doc found but all critical fields (date, total, GSTIN) are blank strings.</div>
+        </div>
+        <div class="arch-status" style="border-color:rgba(251,191,36,0.3);background:rgba(251,191,36,0.05);">
+          <div class="arch-status-name" style="color:var(--c-a);">⚠️ INVOICE_DATE_MISSING</div>
+          <div class="arch-status-desc">OCR doc found but ocr_invoice_date is empty — OCR failed to extract date.</div>
+        </div>
+        <div class="arch-status" style="border-color:rgba(251,191,36,0.3);background:rgba(251,191,36,0.05);">
+          <div class="arch-status-name" style="color:var(--c-a);">⚠️ INVOICE_TOTAL_MISSING</div>
+          <div class="arch-status-desc">OCR doc found but ocr_invoice_total is empty — OCR missed the amount.</div>
+        </div>
+        <div class="arch-status" style="border-color:rgba(167,139,250,0.3);background:rgba(167,139,250,0.05);">
+          <div class="arch-status-name" style="color:var(--c-p);">⏱️ TIME_BUFFER_EXCEEDED</div>
+          <div class="arch-status-desc">time_diff_seconds exceeds configured threshold. SLA breach detected.</div>
+        </div>
+        <div class="arch-status" style="border-color:rgba(56,189,248,0.3);background:rgba(56,189,248,0.05);">
+          <div class="arch-status-name" style="color:var(--c-b);">🏷️ vendor_type values</div>
+          <div class="arch-status-desc"><b style="color:var(--c-g);">Legit</b>: OCR worked. <b style="color:var(--c-a);">Manual</b>: External. <b style="color:var(--c-r);">Moglix</b>: Gap to fix.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ DEVELOPER VIEW ═══════════════ -->
+<div class="view active" id="viewDev">
+<div class="fc-canvas">
+
+  <!-- BQ SCHEMA BLOCK -->
+  <div class="arch-block" style="margin-bottom:32px;">
+    <div class="arch-block-top">
+      <div class="arch-block-icon">🏛️</div>
+      <div>
+        <div class="arch-block-title">ocr_accuracy_results · BigQuery Schema</div>
+        <div class="arch-block-sub">project.dataset.ocr_accuracy_results · DAY partition on processing_timestamp · 25 columns from 4 sources</div>
+      </div>
+      <div class="arch-pills">
+        <div class="arch-pill" style="color:#34d399;border-color:rgba(52,211,153,0.3);background:rgba(52,211,153,0.07);">📡 Kafka: 7</div>
+        <div class="arch-pill" style="color:#6ee7b7;border-color:rgba(110,231,183,0.3);background:rgba(110,231,183,0.07);">🗄️ Mongo: 10</div>
+        <div class="arch-pill" style="color:#fbbf24;border-color:rgba(251,191,36,0.3);background:rgba(251,191,36,0.07);">🗃️ MySQL: 1</div>
+        <div class="arch-pill" style="color:#a78bfa;border-color:rgba(167,139,250,0.3);background:rgba(167,139,250,0.07);">⚙️ Pipeline: 7</div>
+      </div>
+    </div>
+    <div class="colflow">
+      <div class="cf-sources" id="cf-sources">
+        <div class="cf-src cf-src-k" id="cf-src-k"><div class="cf-src-icon">📡</div><div class="cf-src-name">Kafka</div><div class="cf-src-cols" style="color:#34d399;">7 cols · msg payload</div></div>
+        <div class="cf-src cf-src-m" id="cf-src-m"><div class="cf-src-icon">🗄️</div><div class="cf-src-name">MongoDB</div><div class="cf-src-cols" style="color:#6ee7b7;">10 cols · req + resp</div></div>
+        <div class="cf-src cf-src-s" id="cf-src-s"><div class="cf-src-icon">🗃️</div><div class="cf-src-name">MySQL</div><div class="cf-src-cols" style="color:#fbbf24;">1 col · Dim_Sys_Plant</div></div>
+        <div class="cf-src cf-src-p" id="cf-src-p"><div class="cf-src-icon">⚙️</div><div class="cf-src-name">Pipeline</div><div class="cf-src-cols" style="color:#a78bfa;">7 cols · computed</div></div>
+      </div>
+      <div class="cf-wires" id="cf-wires">
+        <svg id="cf-svg" width="100%" height="100%"></svg>
+      </div>
+      <div class="cf-cols" id="cf-cols">
+        <div class="cf-col" id="cf-col-0"><div class="cf-col-dot" id="cf-dot-0" style="background:#34d399;box-shadow:0 0 5px #34d39966;"></div><div class="cf-col-name" style="color:#34d399;">kafka_timestamp</div><div class="cf-col-type ct-int">INT</div><div class="cf-col-val" id="cf-val-0">1729123456789</div><div class="cf-col-src" style="color:#34d399;border-color:#34d39944;background:#34d39911;">Kafka</div></div>
+        <div class="cf-col" id="cf-col-1"><div class="cf-col-dot" id="cf-dot-1" style="background:#34d399;box-shadow:0 0 5px #34d39966;"></div><div class="cf-col-name" style="color:#34d399;">po_id</div><div class="cf-col-type ct-str">STR</div><div class="cf-col-val" id="cf-val-1">PO-2024-88421</div><div class="cf-col-src" style="color:#34d399;border-color:#34d39944;background:#34d39911;">Kafka</div></div>
+        <div class="cf-col" id="cf-col-2"><div class="cf-col-dot" id="cf-dot-2" style="background:#34d399;box-shadow:0 0 5px #34d39966;"></div><div class="cf-col-name" style="color:#34d399;">kafka_final_gstin</div><div class="cf-col-type ct-str">STR</div><div class="cf-col-val" id="cf-val-2">27AABCM1596J1ZQ</div><div class="cf-col-src" style="color:#34d399;border-color:#34d39944;background:#34d39911;">Kafka</div></div>
+        <div class="cf-col" id="cf-col-3"><div class="cf-col-dot" id="cf-dot-3" style="background:#34d399;box-shadow:0 0 5px #34d39966;"></div><div class="cf-col-name" style="color:#34d399;">invoice_number_kafka</div><div class="cf-col-type ct-str">STR</div><div class="cf-col-val" id="cf-val-3">INV/2024/10091</div><div class="cf-col-src" style="color:#34d399;border-color:#34d39944;background:#34d39911;">Kafka</div></div>
+        <div class="cf-col" id="cf-col-4"><div class="cf-col-dot" id="cf-dot-4" style="background:#34d399;box-shadow:0 0 5px #34d39966;"></div><div class="cf-col-name" style="color:#34d399;">invoice_amount_kafka</div><div class="cf-col-type ct-fl">FLT</div><div class="cf-col-val" id="cf-val-4">14250.00</div><div class="cf-col-src" style="color:#34d399;border-color:#34d39944;background:#34d39911;">Kafka</div></div>
+        <div class="cf-col" id="cf-col-5"><div class="cf-col-dot" id="cf-dot-5" style="background:#34d399;box-shadow:0 0 5px #34d39966;"></div><div class="cf-col-name" style="color:#34d399;">invoice_date_kafka</div><div class="cf-col-type ct-str">STR</div><div class="cf-col-val" id="cf-val-5">2024-10-15</div><div class="cf-col-src" style="color:#34d399;border-color:#34d39944;background:#34d39911;">Kafka</div></div>
+        <div class="cf-col" id="cf-col-6"><div class="cf-col-dot" id="cf-dot-6" style="background:#34d399;box-shadow:0 0 5px #34d39966;"></div><div class="cf-col-name" style="color:#34d399;">file_url</div><div class="cf-col-type ct-str">STR</div><div class="cf-col-val" id="cf-val-6">https://cdn.moglix.com/…</div><div class="cf-col-src" style="color:#34d399;border-color:#34d39944;background:#34d39911;">Kafka</div></div>
+        <div class="cf-col" id="cf-col-7"><div class="cf-col-dot" id="cf-dot-7" style="background:#6ee7b7;box-shadow:0 0 5px #6ee7b766;"></div><div class="cf-col-name" style="color:#6ee7b7;">ocr_invoice_date</div><div class="cf-col-type ct-str">STR</div><div class="cf-col-val" id="cf-val-7">2024-10-15</div><div class="cf-col-src" style="color:#6ee7b7;border-color:#6ee7b744;background:#6ee7b711;">MongoDB</div></div>
+        <div class="cf-col" id="cf-col-8"><div class="cf-col-dot" id="cf-dot-8" style="background:#6ee7b7;box-shadow:0 0 5px #6ee7b766;"></div><div class="cf-col-name" style="color:#6ee7b7;">ocr_invoice_total</div><div class="cf-col-type ct-str">STR</div><div class="cf-col-val" id="cf-val-8">14250.00</div><div class="cf-col-src" style="color:#6ee7b7;border-color:#6ee7b744;background:#6ee7b711;">MongoDB</div></div>
+        <div class="cf-col" id="cf-col-9"><div class="cf-col-dot" id="cf-dot-9" style="background:#6ee7b7;box-shadow:0 0 5px #6ee7b766;"></div><div class="cf-col-name" style="color:#6ee7b7;">ocr_gstin</div><div class="cf-col-type ct-str">STR</div><div class="cf-col-val" id="cf-val-9">27AABCM1596J1ZQ</div><div class="cf-col-src" style="color:#6ee7b7;border-color:#6ee7b744;background:#6ee7b711;">MongoDB</div></div>
+        <div class="cf-col" id="cf-col-10"><div class="cf-col-dot" id="cf-dot-10" style="background:#6ee7b7;box-shadow:0 0 5px #6ee7b766;"></div><div class="cf-col-name" style="color:#6ee7b7;">ocr_qr_detected</div><div class="cf-col-type ct-bl">BOOL</div><div class="cf-col-val" id="cf-val-10">true</div><div class="cf-col-src" style="color:#6ee7b7;border-color:#6ee7b744;background:#6ee7b711;">MongoDB</div></div>
+        <div class="cf-col" id="cf-col-11"><div class="cf-col-dot" id="cf-dot-11" style="background:#6ee7b7;box-shadow:0 0 5px #6ee7b766;"></div><div class="cf-col-name" style="color:#6ee7b7;">mongo_created_at</div><div class="cf-col-type ct-ts">TS</div><div class="cf-col-val" id="cf-val-11">2024-10-15 09:32:41</div><div class="cf-col-src" style="color:#6ee7b7;border-color:#6ee7b744;background:#6ee7b711;">MongoDB</div></div>
+        <div class="cf-col" id="cf-col-12"><div class="cf-col-dot" id="cf-dot-12" style="background:#6ee7b7;box-shadow:0 0 5px #6ee7b766;"></div><div class="cf-col-name" style="color:#6ee7b7;">mongo_doc_id</div><div class="cf-col-type ct-str">STR</div><div class="cf-col-val" id="cf-val-12">670e4f2a3b8c1d00e9f44a12</div><div class="cf-col-src" style="color:#6ee7b7;border-color:#6ee7b744;background:#6ee7b711;">MongoDB</div></div>
+        <div class="cf-col" id="cf-col-13"><div class="cf-col-dot" id="cf-dot-13" style="background:#6ee7b7;box-shadow:0 0 5px #6ee7b766;"></div><div class="cf-col-name" style="color:#6ee7b7;">request_gstin</div><div class="cf-col-type ct-str">STR</div><div class="cf-col-val" id="cf-val-13">27AABCM1596J1ZQ</div><div class="cf-col-src" style="color:#6ee7b7;border-color:#6ee7b744;background:#6ee7b711;">MongoDB</div></div>
+        <div class="cf-col" id="cf-col-14"><div class="cf-col-dot" id="cf-dot-14" style="background:#6ee7b7;box-shadow:0 0 5px #6ee7b766;"></div><div class="cf-col-name" style="color:#6ee7b7;">request_invoice_no</div><div class="cf-col-type ct-str">STR</div><div class="cf-col-val" id="cf-val-14">INV/2024/10091</div><div class="cf-col-src" style="color:#6ee7b7;border-color:#6ee7b744;background:#6ee7b711;">MongoDB</div></div>
+        <div class="cf-col" id="cf-col-15"><div class="cf-col-dot" id="cf-dot-15" style="background:#6ee7b7;box-shadow:0 0 5px #6ee7b766;"></div><div class="cf-col-name" style="color:#6ee7b7;">request_invoice_date</div><div class="cf-col-type ct-str">STR</div><div class="cf-col-val" id="cf-val-15">2024-10-15</div><div class="cf-col-src" style="color:#6ee7b7;border-color:#6ee7b744;background:#6ee7b711;">MongoDB</div></div>
+        <div class="cf-col" id="cf-col-16"><div class="cf-col-dot" id="cf-dot-16" style="background:#6ee7b7;box-shadow:0 0 5px #6ee7b766;"></div><div class="cf-col-name" style="color:#6ee7b7;">request_total</div><div class="cf-col-type ct-str">STR</div><div class="cf-col-val" id="cf-val-16">14250.00</div><div class="cf-col-src" style="color:#6ee7b7;border-color:#6ee7b744;background:#6ee7b711;">MongoDB</div></div>
+        <div class="cf-col" id="cf-col-17"><div class="cf-col-dot" id="cf-dot-17" style="background:#fbbf24;box-shadow:0 0 5px #fbbf2466;"></div><div class="cf-col-name" style="color:#fbbf24;">vendor_type</div><div class="cf-col-type ct-str">STR</div><div class="cf-col-val" id="cf-val-17">Legit</div><div class="cf-col-src" style="color:#fbbf24;border-color:#fbbf2444;background:#fbbf2411;">MySQL</div></div>
+        <div class="cf-col" id="cf-col-18"><div class="cf-col-dot" id="cf-dot-18" style="background:#a78bfa;box-shadow:0 0 5px #a78bfa66;"></div><div class="cf-col-name" style="color:#a78bfa;">status</div><div class="cf-col-type ct-str">STR</div><div class="cf-col-val" id="cf-val-18">MATCHED</div><div class="cf-col-src" style="color:#a78bfa;border-color:#a78bfa44;background:#a78bfa11;">Pipeline</div></div>
+        <div class="cf-col" id="cf-col-19"><div class="cf-col-dot" id="cf-dot-19" style="background:#a78bfa;box-shadow:0 0 5px #a78bfa66;"></div><div class="cf-col-name" style="color:#a78bfa;">time_diff_seconds</div><div class="cf-col-type ct-fl">FLT</div><div class="cf-col-val" id="cf-val-19">3.21</div><div class="cf-col-src" style="color:#a78bfa;border-color:#a78bfa44;background:#a78bfa11;">Pipeline</div></div>
+        <div class="cf-col" id="cf-col-20"><div class="cf-col-dot" id="cf-dot-20" style="background:#a78bfa;box-shadow:0 0 5px #a78bfa66;"></div><div class="cf-col-name" style="color:#a78bfa;">processing_timestamp</div><div class="cf-col-type ct-ts">TS</div><span class="cf-part">⚑ PARTITION</span><div class="cf-col-val" id="cf-val-20">2024-10-16 06:14:22</div><div class="cf-col-src" style="color:#a78bfa;border-color:#a78bfa44;background:#a78bfa11;">Pipeline</div></div>
+        <div class="cf-col" id="cf-col-21"><div class="cf-col-dot" id="cf-dot-21" style="background:#a78bfa;box-shadow:0 0 5px #a78bfa66;"></div><div class="cf-col-name" style="color:#a78bfa;">pipeline_run_date</div><div class="cf-col-type ct-str">STR</div><div class="cf-col-val" id="cf-val-21">2024-10-15</div><div class="cf-col-src" style="color:#a78bfa;border-color:#a78bfa44;background:#a78bfa11;">Pipeline</div></div>
+        <div class="cf-col" id="cf-col-22"><div class="cf-col-dot" id="cf-dot-22" style="background:#a78bfa;box-shadow:0 0 5px #a78bfa66;"></div><div class="cf-col-name" style="color:#a78bfa;">batch_id</div><div class="cf-col-type ct-int">INT</div><div class="cf-col-val" id="cf-val-22">42</div><div class="cf-col-src" style="color:#a78bfa;border-color:#a78bfa44;background:#a78bfa11;">Pipeline</div></div>
+        <div class="cf-col" id="cf-col-23"><div class="cf-col-dot" id="cf-dot-23" style="background:#a78bfa;box-shadow:0 0 5px #a78bfa66;"></div><div class="cf-col-name" style="color:#a78bfa;">start_from_ms</div><div class="cf-col-type ct-int">INT</div><div class="cf-col-val" id="cf-val-23">1729036800000</div><div class="cf-col-src" style="color:#a78bfa;border-color:#a78bfa44;background:#a78bfa11;">Pipeline</div></div>
+        <div class="cf-col" id="cf-col-24"><div class="cf-col-dot" id="cf-dot-24" style="background:#a78bfa;box-shadow:0 0 5px #a78bfa66;"></div><div class="cf-col-name" style="color:#a78bfa;">t1_end_ms</div><div class="cf-col-type ct-int">INT</div><div class="cf-col-val" id="cf-val-24">1729123199999</div><div class="cf-col-src" style="color:#a78bfa;border-color:#a78bfa44;background:#a78bfa11;">Pipeline</div></div>
+      </div>
+    </div>
+    <!-- LIVE CSV TABLE -->
+    <div class="csv-section">
+      <div class="csv-hdr">
+        <div class="live-dot"></div>
+        <div class="csv-lbl">Live Streaming Rows</div>
+        <div class="csv-sub">· insert_rows_json() · batch_size=500 · rolling mid-pipeline writes</div>
+      </div>
+      <div class="csv-scroll">
+        <table class="csv-table">
+          <thead><tr>
+            <th style="color:#888;">#</th>
+            <th style="color:#34d399;">kafka_timestamp</th>
+            <th style="color:#34d399;">po_id</th>
+            <th style="color:#34d399;">kafka_final_gstin</th>
+            <th style="color:#34d399;">invoice_amount_kafka</th>
+            <th style="color:#34d399;">invoice_date_kafka</th>
+            <th style="color:#6ee7b7;">ocr_invoice_date</th>
+            <th style="color:#6ee7b7;">ocr_invoice_total</th>
+            <th style="color:#6ee7b7;">ocr_qr_detected</th>
+            <th style="color:#fbbf24;">vendor_type</th>
+            <th style="color:#a78bfa;">status</th>
+            <th style="color:#a78bfa;">time_diff_seconds</th>
+            <th style="color:#fda4af;">processing_timestamp ⚑</th>
+          </tr></thead>
+          <tbody id="dev-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ FLOWCHART — PHASE-BASED ══ -->
+  <div style="width:100%;display:flex;flex-direction:column;align-items:center;gap:0;margin-top:40px;max-width:780px;">
+
+    <div style="font-family:var(--mono);font-size:0.58rem;font-weight:800;letter-spacing:0.18em;text-transform:uppercase;color:#4a5580;margin-bottom:18px;display:flex;align-items:center;gap:12px;width:100%;">
+      <span style="flex:1;height:1px;background:rgba(255,255,255,0.07);display:block;"></span>
+      PIPELINE EXECUTION FLOW
+      <span style="flex:1;height:1px;background:rgba(255,255,255,0.07);display:block;"></span>
+    </div>
+
+    <!-- START -->
+    <div class="node-terminal t-purple" style="box-shadow:0 0 32px rgba(167,139,250,0.3);">
+      🚀 &nbsp;Pipeline Start &nbsp;·&nbsp; run_pipeline()
+    </div>
+
+    <div class="conn">
+      <div class="conn-line" style="height:14px;background:rgba(167,139,250,0.8);">
+        <div class="anim-dot" style="background:#a78bfa;"></div>
+      </div>
+      <div class="conn-arrow" style="color:#a78bfa;">▼</div>
+    </div>
+
+    <!-- ═══ PHASE 0 ═══ -->
+    <div class="phase-container phase-purple" style="width:100%;max-width:780px;">
+      <div class="phase-header">
+        <div class="phase-tag" style="color:#c4b5fd;border-color:rgba(167,139,250,0.4);background:rgba(167,139,250,0.12);">Phase 0</div>
+        <div class="phase-title" style="color:#c4b5fd;">Initialisation</div>
+        <div class="phase-sub">Config · DB Init · Processor Setup</div>
+      </div>
+      <div class="phase-body">
+        <!-- PipelineConfig -->
+        <div class="node-process t-purple">
+          <div class="node-title" style="color:#c4b5fd;">⚙️ PipelineConfig()</div>
+          <div class="node-sub">Load .env vars · Compute T-1 window (yesterday 00:00→23:59 IST as ms epoch)<br>Query BQ MAX(kafka_timestamp) → set start_from_ms = ts+1 for idempotent resume</div>
+          <div class="node-chips">
+            <span class="node-chip" style="background:rgba(167,139,250,0.18);border:1.5px solid rgba(167,139,250,0.4);color:#c4b5fd;">pipeline_run_date</span>
+            <span class="node-chip" style="background:rgba(167,139,250,0.18);border:1.5px solid rgba(167,139,250,0.4);color:#c4b5fd;">start_from_ms</span>
+            <span class="node-chip" style="background:rgba(167,139,250,0.18);border:1.5px solid rgba(167,139,250,0.4);color:#c4b5fd;">t1_end_ms</span>
+          </div>
+        </div>
+        <div class="inner-conn"><div class="inner-conn-line"><div class="inner-anim" style="background:#a78bfa;"></div></div><div class="inner-conn-arrow">▼</div></div>
+        <!-- DB Init -->
+        <div class="node-db t-purple">
+          <div class="node-db-top" style="color:#c4b5fd;">🔌 DATABASE INIT</div>
+          <div class="node-db-inner">
+            <div class="node-title" style="color:#c4b5fd;font-size:0.85rem;">DatabaseConnections.initialize()</div>
+            <div class="node-sub">MongoDB pool 20–100 · BigQuery 25-field table auto-create (DAY partition)<br>MySQL pool size=3 · Kafka subscribe with tuned fetch config (64KB min, 4MB max)</div>
+          </div>
+        </div>
+        <div class="inner-conn"><div class="inner-conn-line"><div class="inner-anim" style="background:#a78bfa;animation-delay:0.3s;"></div></div><div class="inner-conn-arrow">▼</div></div>
+        <!-- Processor Init -->
+        <div class="node-process t-purple">
+          <div class="node-title" style="color:#c4b5fd;">🔧 PipelineProcessor.__init__()</div>
+          <div class="node-sub">Create PipelineStats() · MongoCache(OrderedDict, max=5000) · VendorTypeClassifier<br>Init kafka_pending=[] and bq_pending=[] buffers</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="conn">
+      <div class="conn-line" style="height:12px;background:linear-gradient(180deg,rgba(167,139,250,0.7),rgba(52,211,153,0.8));"><div class="anim-dot" style="background:#34d399;animation-delay:0.1s;"></div></div>
+      <div class="conn-label">begin Kafka polling loop</div>
+      <div class="conn-line" style="height:10px;background:rgba(52,211,153,0.8);"><div class="anim-dot" style="background:#34d399;animation-delay:0.4s;"></div></div>
+      <div class="conn-arrow" style="color:#34d399;">▼</div>
+    </div>
+
+    <!-- ═══ PHASE 1 ═══ -->
+    <div class="phase-container phase-green" style="width:100%;max-width:780px;">
+      <div class="phase-header">
+        <div class="phase-tag" style="color:#6efac6;border-color:rgba(52,211,153,0.4);background:rgba(52,211,153,0.12);">Phase 1</div>
+        <div class="phase-title" style="color:#6efac6;">Kafka Poll Loop</div>
+        <div class="phase-sub">consumer.poll · filter · buffer</div>
+      </div>
+      <div class="phase-body">
+        <!-- I/O Poll -->
+        <div class="node-io t-green">
+          <div class="node-io-title" style="color:#6efac6;">📡 consumer.poll( timeout = 0.05 s )</div>
+          <div class="node-io-sub">fetch.min.bytes = 64 KB &nbsp;·&nbsp; max.partition = 4 MB &nbsp;·&nbsp; queued.min = 200 k msgs</div>
+        </div>
+        <div class="inner-conn"><div class="inner-conn-line"><div class="inner-anim" style="background:#34d399;"></div></div><div class="inner-conn-arrow">▼</div></div>
+
+        <!-- Decision: msg None? -->
+        <div class="decision-row">
+          <div class="decision-wrap">
+            <div class="node-decision" style="width:300px;height:88px;background:rgba(52,211,153,0.1);border:2px solid rgba(52,211,153,0.65);color:#6efac6;font-size:0.82rem;">msg is None ?</div>
+          </div>
+          <div class="branch-right">
+            <div class="branch-right-label" style="color:#fca5a5;border-color:rgba(251,113,133,0.5);background:rgba(251,113,133,0.08);">YES → empty_polls++</div>
+            <div class="branch-right-note">If &gt;100 AND processed &gt; 0<br>→ END STREAM</div>
+          </div>
+        </div>
+        <div class="branch-down-label"><span style="color:#6efac6;border-color:rgba(52,211,153,0.5);background:rgba(52,211,153,0.08);">NO ↓</span></div>
+        <div class="inner-conn"><div class="inner-conn-line"><div class="inner-anim" style="background:#34d399;animation-delay:0.2s;"></div></div><div class="inner-conn-arrow">▼</div></div>
+
+        <!-- Decision: msg.error? -->
+        <div class="decision-row">
+          <div class="decision-wrap">
+            <div class="node-decision" style="width:300px;height:88px;background:rgba(52,211,153,0.1);border:2px solid rgba(52,211,153,0.65);color:#6efac6;font-size:0.82rem;">msg.error() ?</div>
+          </div>
+          <div class="branch-right">
+            <div class="branch-right-label" style="color:#fca5a5;border-color:rgba(251,113,133,0.5);background:rgba(251,113,133,0.08);">YES → log WARNING</div>
+            <div class="branch-right-note">continue loop</div>
+          </div>
+        </div>
+        <div class="branch-down-label"><span style="color:#6efac6;border-color:rgba(52,211,153,0.5);background:rgba(52,211,153,0.08);">NO ↓</span></div>
+        <div class="inner-conn"><div class="inner-conn-line"><div class="inner-anim" style="background:#34d399;animation-delay:0.1s;"></div></div><div class="inner-conn-arrow">▼</div></div>
+
+        <!-- Timestamp Filter -->
+        <div class="node-process t-green">
+          <div class="node-title" style="color:#6efac6;">🕐 Timestamp Filter</div>
+          <div class="node-sub">ts ≤ 0 → skip invalid &nbsp;&nbsp;·&nbsp;&nbsp; ts ≤ start_from_ms → skipped_old++ (log every 500)<br>ts &gt; t1_end_ms → <strong style="color:#fca5a5;">STOP loop</strong> &nbsp;&nbsp;·&nbsp;&nbsp; Else → valid, append to buffer</div>
+          <div class="node-chips">
+            <span class="node-chip" style="background:rgba(52,211,153,0.18);border:1.5px solid rgba(52,211,153,0.4);color:#6efac6;">kafka_timestamp</span>
+          </div>
+        </div>
+        <div class="inner-conn"><div class="inner-conn-line"><div class="inner-anim" style="background:#34d399;animation-delay:0.25s;"></div></div><div class="inner-conn-arrow">▼</div></div>
+
+        <!-- I/O Parse + buffer -->
+        <div class="node-io t-green">
+          <div class="node-io-title" style="color:#6efac6;">📥 Parse JSON → kafka_pending.append()</div>
+          <div class="node-io-sub">Extract po_id · kafka_final_gstin · invoice fields · file_url<br>Append (kafka_json, kafka_ts_ms) to pending buffer</div>
+        </div>
+        <div class="inner-conn"><div class="inner-conn-line"><div class="inner-anim" style="background:#34d399;animation-delay:0.4s;"></div></div><div class="inner-conn-arrow">▼</div></div>
+
+        <!-- Decision: buffer >= 100 -->
+        <div class="decision-row">
+          <div class="decision-wrap">
+            <div class="node-decision" style="width:320px;height:88px;background:rgba(52,211,153,0.1);border:2px solid rgba(52,211,153,0.65);color:#6efac6;font-size:0.78rem;">len(kafka_pending) ≥ 100 ?</div>
+          </div>
+          <div class="branch-right">
+            <div class="branch-right-label" style="color:#94a3b8;border-color:rgba(148,163,184,0.4);background:rgba(148,163,184,0.07);">NO → poll next msg</div>
+          </div>
+        </div>
+        <div class="branch-down-label"><span style="color:#6efac6;border-color:rgba(52,211,153,0.5);background:rgba(52,211,153,0.08);">YES ↓ flush batch</span></div>
+      </div>
+    </div>
+
+    <div class="conn">
+      <div class="conn-line" style="height:12px;background:linear-gradient(180deg,rgba(52,211,153,0.8),rgba(110,231,183,0.8));"><div class="anim-dot" style="background:#6ee7b7;animation-delay:0.15s;"></div></div>
+      <div class="conn-label">flush kafka_pending (100 msgs) → process_kafka_batch()</div>
+      <div class="conn-line" style="height:10px;background:rgba(110,231,183,0.8);"><div class="anim-dot" style="background:#6ee7b7;animation-delay:0.45s;"></div></div>
+      <div class="conn-arrow" style="color:#6ee7b7;">▼</div>
+    </div>
+
+    <!-- ═══ PHASE 1b ═══ -->
+    <div class="phase-container phase-teal" style="width:100%;max-width:780px;">
+      <div class="phase-header">
+        <div class="phase-tag" style="color:#a7f3d0;border-color:rgba(110,231,183,0.4);background:rgba(110,231,183,0.12);">Phase 1b</div>
+        <div class="phase-title" style="color:#a7f3d0;">Batch Processing</div>
+        <div class="phase-sub">Split · LRU Cache · MongoDB $in · build_bq_row</div>
+      </div>
+      <div class="phase-body">
+        <!-- Split -->
+        <div class="node-process t-teal">
+          <div class="node-title" style="color:#a7f3d0;">✂️ process_kafka_batch() → split on po_id</div>
+          <div class="node-sub">Split into has_po_id and missing_po lists<br>missing_po → _empty_row( status = PO_ID_MISSING_KAFKA ) immediately — <strong style="color:#fde68a;">zero Mongo cost</strong></div>
+        </div>
+        <div class="inner-conn"><div class="inner-conn-line"><div class="inner-anim" style="background:#6ee7b7;"></div></div><div class="inner-conn-arrow">▼</div></div>
+
+        <!-- LRU Cache -->
+        <div class="node-process t-blue">
+          <div class="node-title" style="color:#93defe;">💾 MongoCache._cache_lookup( po_id ) — O(1) LRU</div>
+          <div class="node-sub">OrderedDict LRU max = 5,000 · HIT: move_to_end() O(1) → return cached<br>MISS: add to to_fetch[] · Caches None too (no re-query) · Eviction: popitem(last=False) O(1)</div>
+        </div>
+        <div class="inner-conn"><div class="inner-conn-line"><div class="inner-anim" style="background:#38bdf8;animation-delay:0.1s;"></div></div><div class="inner-conn-arrow">▼</div></div>
+
+        <!-- Mongo DB -->
+        <div class="node-db t-teal">
+          <div class="node-db-top" style="color:#a7f3d0;">🗄️ MONGODB · ⚡ 1 QUERY PER 100 MSGS</div>
+          <div class="node-db-inner">
+            <div class="node-title" style="color:#a7f3d0;font-size:0.85rem;">fetch_mongo_batch() — single $in query</div>
+            <div class="node-sub">find({request_body.po_id: {$in: [all_miss_po_ids]}}) · asyncio.to_thread<br>Projects: request_body, response_body, created_at, _id · <em style="color:#fde68a;">Was N separate find_one calls</em></div>
+            <div class="node-chips">
+              <span class="node-chip" style="background:rgba(110,231,183,0.18);border:1.5px solid rgba(110,231,183,0.4);color:#a7f3d0;">ocr_invoice_date</span>
+              <span class="node-chip" style="background:rgba(110,231,183,0.18);border:1.5px solid rgba(110,231,183,0.4);color:#a7f3d0;">ocr_invoice_total</span>
+              <span class="node-chip" style="background:rgba(110,231,183,0.18);border:1.5px solid rgba(110,231,183,0.4);color:#a7f3d0;">ocr_gstin</span>
+              <span class="node-chip" style="background:rgba(110,231,183,0.18);border:1.5px solid rgba(110,231,183,0.4);color:#a7f3d0;">mongo_created_at</span>
+              <span class="node-chip" style="background:rgba(110,231,183,0.18);border:1.5px solid rgba(110,231,183,0.4);color:#a7f3d0;">request_gstin</span>
+            </div>
+          </div>
+        </div>
+        <div class="inner-conn"><div class="inner-conn-line"><div class="inner-anim" style="background:#6ee7b7;animation-delay:0.3s;"></div></div><div class="inner-conn-arrow">▼</div></div>
+
+        <!-- build_bq_row -->
+        <div class="node-process t-teal">
+          <div class="node-title" style="color:#a7f3d0;">🏗️ build_bq_row() → determine_status() — Synchronous</div>
+          <div class="node-sub">Compute time_diff_seconds (mongo_created_at − kafka_ts)<br>Determine one of 7 statuses · vendor_type = None (stamped in Phase 2)</div>
+          <div class="node-chips">
+            <span class="node-chip" style="background:rgba(167,139,250,0.18);border:1.5px solid rgba(167,139,250,0.4);color:#c4b5fd;">status</span>
+            <span class="node-chip" style="background:rgba(167,139,250,0.18);border:1.5px solid rgba(167,139,250,0.4);color:#c4b5fd;">time_diff_seconds</span>
+            <span class="node-chip" style="background:rgba(167,139,250,0.18);border:1.5px solid rgba(167,139,250,0.4);color:#c4b5fd;">batch_id</span>
+          </div>
+        </div>
+
+        <!-- 7 STATUS OUTCOMES — compact row directly attached -->
+        <div style="display:flex;align-items:center;gap:6px;margin:6px 0 2px;">
+          <div style="width:2px;height:12px;background:rgba(110,231,183,0.5);margin-left:auto;margin-right:auto;"></div>
+        </div>
+        <div style="font-family:var(--mono);font-size:0.5rem;font-weight:800;color:#6ee7b7;letter-spacing:0.08em;text-align:center;margin-bottom:6px;opacity:0.8;">7 STATUS OUTCOMES</div>
+        <div class="status-row">
+          <div class="status-box" style="color:#86efac;border-color:rgba(52,211,153,0.4);background:rgba(52,211,153,0.06);">
+            <div class="status-box-icon">✅</div>
+            <div class="status-box-name">MATCHED</div>
+            <div class="status-box-desc">Date+total<br>present, OK</div>
+          </div>
+          <div class="status-box" style="color:#fca5a5;border-color:rgba(251,113,133,0.4);background:rgba(251,113,133,0.06);">
+            <div class="status-box-icon">❌</div>
+            <div class="status-box-name">PO_ID<br>NOT_FOUND</div>
+            <div class="status-box-desc">No Mongo doc<br>→ MySQL Ph.2</div>
+          </div>
+          <div class="status-box" style="color:#fca5a5;border-color:rgba(251,113,133,0.4);background:rgba(251,113,133,0.06);">
+            <div class="status-box-icon">⚠️</div>
+            <div class="status-box-name">PO_ID<br>MISSING</div>
+            <div class="status-box-desc">No po_id<br>→ empty row</div>
+          </div>
+          <div class="status-box" style="color:#fcd34d;border-color:rgba(251,191,36,0.4);background:rgba(251,191,36,0.06);">
+            <div class="status-box-icon">⚠️</div>
+            <div class="status-box-name">MONGO<br>ALL_EMPTY</div>
+            <div class="status-box-desc">Doc found,<br>fields blank</div>
+          </div>
+          <div class="status-box" style="color:#fcd34d;border-color:rgba(251,191,36,0.4);background:rgba(251,191,36,0.06);">
+            <div class="status-box-icon">⚠️</div>
+            <div class="status-box-name">DATE<br>MISSING</div>
+            <div class="status-box-desc">OCR failed<br>date extract</div>
+          </div>
+          <div class="status-box" style="color:#fcd34d;border-color:rgba(251,191,36,0.4);background:rgba(251,191,36,0.06);">
+            <div class="status-box-icon">⚠️</div>
+            <div class="status-box-name">TOTAL<br>MISSING</div>
+            <div class="status-box-desc">OCR missed<br>invoice amt</div>
+          </div>
+          <div class="status-box" style="color:#c4b5fd;border-color:rgba(167,139,250,0.4);background:rgba(167,139,250,0.06);">
+            <div class="status-box-icon">⏱️</div>
+            <div class="status-box-name">TIME<br>EXCEEDED</div>
+            <div class="status-box-desc">SLA breach<br>detected</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="conn">
+      <div class="conn-line" style="height:12px;background:linear-gradient(180deg,rgba(110,231,183,0.7),rgba(251,191,36,0.8));"><div class="anim-dot" style="background:#fbbf24;animation-delay:0.15s;"></div></div>
+      <div class="conn-label">bq_pending ≥ 500 rows → classify_and_write()</div>
+      <div class="conn-line" style="height:10px;background:rgba(251,191,36,0.8);"><div class="anim-dot" style="background:#fbbf24;animation-delay:0.45s;"></div></div>
+      <div class="conn-arrow" style="color:#fbbf24;">▼</div>
+    </div>
+
+    <!-- ═══ PHASE 2 ═══ — Structured Sub-Workflow -->
+    <div class="phase-container phase-amber" style="width:100%;max-width:780px;">
+      <div class="phase-header">
+        <div class="phase-tag" style="color:#fde68a;border-color:rgba(251,191,36,0.4);background:rgba(251,191,36,0.12);">Phase 2</div>
+        <div class="phase-title" style="color:#fde68a;">Vendor Classification</div>
+        <div class="phase-sub">classify_and_write · MySQL Dim_Sys_Plant · stamp vendor_type</div>
+      </div>
+      <div class="phase-body">
+        <!-- Entry node -->
+        <div class="node-process t-amber">
+          <div class="node-title" style="color:#fde68a;">✂️ classify_and_write( batch ) → split</div>
+          <div class="node-sub">Split into legit_rows (status ≠ PO_ID_NOT_FOUND) → tag 'Legit' instantly (zero MySQL cost)<br>and not_found_rows → proceed to GSTIN dedup + MySQL query</div>
+        </div>
+        <div class="inner-conn"><div class="inner-conn-line"><div class="inner-anim" style="background:#fbbf24;"></div></div><div class="inner-conn-arrow">▼</div></div>
+
+        <!-- Decision diamond with side branch -->
+        <div class="decision-row">
+          <div style="min-width:150px;display:flex;flex-direction:column;align-items:flex-end;padding-right:12px;justify-content:center;">
+            <div class="side-dead-box" style="color:#86efac;border-color:rgba(52,211,153,0.45);background:rgba(52,211,153,0.06);">
+              <div style="font-size:0.62rem;font-weight:800;color:#86efac;margin-bottom:2px;">✅ Legit</div>
+              <div style="font-size:0.52rem;color:#94a3b8;">vendor_type = 'Legit'<br>zero DB cost</div>
+            </div>
+          </div>
+          <div class="decision-wrap">
+            <div class="node-decision" style="width:280px;height:88px;background:rgba(251,191,36,0.09);border:2px solid rgba(251,191,36,0.6);color:#fde68a;font-size:0.78rem;">status ==<br>PO_ID_NOT_FOUND ?</div>
+          </div>
+          <div class="branch-right">
+            <div class="branch-right-label" style="color:#86efac;border-color:rgba(52,211,153,0.5);background:rgba(52,211,153,0.08);">NO → Legit ←</div>
+          </div>
+        </div>
+        <div class="branch-down-label"><span style="color:#fde68a;border-color:rgba(251,191,36,0.5);background:rgba(251,191,36,0.08);">YES ↓ MySQL query</span></div>
+        <div class="inner-conn"><div class="inner-conn-line"><div class="inner-anim" style="background:#fbbf24;animation-delay:0.2s;"></div></div><div class="inner-conn-arrow">▼</div></div>
+
+        <!-- MySQL DB -->
+        <div class="node-db t-amber">
+          <div class="node-db-top" style="color:#fde68a;">🗃️ MYSQL · Dim_Sys_Plant · ⚡ 1 QUERY PER BATCH</div>
+          <div class="node-db-inner">
+            <div class="node-title" style="color:#fde68a;font-size:0.85rem;">Dedup GSTINs → Dim_Sys_Plant query</div>
+            <div class="node-sub">Set comprehension on not_found_rows kafka_final_gstin → deduplicated<br>SELECT DISTINCT Customer_GSTIN WHERE GSTIN IN (%s,...) AND Vertical NOT IN ('ALL','ABFRL') AND Company_ID &lt;&gt; 1 · Pool size=3</div>
+          </div>
+        </div>
+        <div class="inner-conn"><div class="inner-conn-line"><div class="inner-anim" style="background:#fbbf24;animation-delay:0.1s;"></div></div><div class="inner-conn-arrow">▼</div></div>
+
+        <!-- Stamp vendor_type -->
+        <div class="node-process t-amber">
+          <div class="node-title" style="color:#fde68a;">🏷️ row["vendor_type"] = ?</div>
+          <div class="node-sub">≠ PO_ID_NOT_FOUND → <strong style="color:#86efac;">Legit</strong> &nbsp;&nbsp;·&nbsp;&nbsp;
+          PO_ID_NOT_FOUND + GSTIN in manual_set → <strong style="color:#fde68a;">Manual</strong> &nbsp;&nbsp;·&nbsp;&nbsp;
+          PO_ID_NOT_FOUND + not in set → <strong style="color:#fca5a5;">Moglix</strong> &nbsp;&nbsp;·&nbsp;&nbsp;
+          MySQL ERROR → fallback all → Moglix (non-fatal)</div>
+          <div class="node-chips">
+            <span class="node-chip" style="background:rgba(52,211,153,0.18);border:1.5px solid rgba(52,211,153,0.4);color:#86efac;">✅ Legit</span>
+            <span class="node-chip" style="background:rgba(251,191,36,0.18);border:1.5px solid rgba(251,191,36,0.4);color:#fde68a;">📋 Manual</span>
+            <span class="node-chip" style="background:rgba(251,113,133,0.18);border:1.5px solid rgba(251,113,133,0.4);color:#fca5a5;">🔴 Moglix</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="conn">
+      <div class="conn-line" style="height:12px;background:linear-gradient(180deg,rgba(251,191,36,0.8),rgba(34,211,238,0.8));"><div class="anim-dot" style="background:#22d3ee;animation-delay:0.2s;"></div></div>
+      <div class="conn-label">all 25 fields populated → serialize → insert_rows_json()</div>
+      <div class="conn-line" style="height:10px;background:rgba(34,211,238,0.8);"><div class="anim-dot" style="background:#22d3ee;animation-delay:0.5s;"></div></div>
+      <div class="conn-arrow" style="color:#22d3ee;">▼</div>
+    </div>
+
+    <!-- ═══ PHASE 3 ═══ -->
+    <div class="phase-container phase-cyan" style="width:100%;max-width:780px;">
+      <div class="phase-header">
+        <div class="phase-tag" style="color:#a5f3fc;border-color:rgba(34,211,238,0.4);background:rgba(34,211,238,0.12);">Phase 3</div>
+        <div class="phase-title" style="color:#a5f3fc;">BigQuery Insert + Finalise</div>
+        <div class="phase-sub">serialize · streaming insert · drain · close</div>
+      </div>
+      <div class="phase-body">
+        <!-- Serialize -->
+        <div class="node-process t-cyan">
+          <div class="node-title" style="color:#a5f3fc;">🔄 serialize_for_json()</div>
+          <div class="node-sub">datetime → ISO 8601 string · None → JSON null · Primitives pass-through<br>Dicts/lists recurse · Prepares BQ streaming insert payload</div>
+        </div>
+        <div class="inner-conn"><div class="inner-conn-line"><div class="inner-anim" style="background:#22d3ee;"></div></div><div class="inner-conn-arrow">▼</div></div>
+
+        <!-- BQ DB -->
+        <div class="node-db t-cyan">
+          <div class="node-db-top" style="color:#a5f3fc;">☁️ BIGQUERY · STREAMING INSERT · asyncio.to_thread</div>
+          <div class="node-db-inner">
+            <div class="node-title" style="color:#a5f3fc;font-size:0.85rem;">insert_rows_json() — 500-row streaming batch</div>
+            <div class="node-sub">BQ streaming insert to project.dataset.table · Partitioned by processing_timestamp (DAY)<br>Errors → log + stats.errors+=N (non-fatal) · Success → total_batches++ · on_batch_written() hook<br><em style="color:#fde68a;">⚡ Rolling mid-pipeline → flat RAM at any scale</em></div>
+          </div>
+        </div>
+        <div class="inner-conn"><div class="inner-conn-line"><div class="inner-anim" style="background:#22d3ee;animation-delay:0.2s;"></div></div><div class="inner-conn-arrow">▼</div></div>
+
+        <!-- Drain + close -->
+        <div class="node-process t-cyan">
+          <div class="node-title" style="color:#a5f3fc;">🔚 Drain + connections.close()</div>
+          <div class="node-sub">on_batch_written() hook called (override for Slack/metrics) · Flush remaining kafka_pending + bq_pending<br>stats.log_summary() prints totals, cache hit ratio, vendor type counts · finally block closes all 4 connections</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="conn">
+      <div class="conn-line" style="height:12px;background:linear-gradient(180deg,rgba(34,211,238,0.5),rgba(148,163,184,0.2));"></div>
+      <div class="conn-arrow" style="color:rgba(148,163,184,0.4);">▼</div>
+    </div>
+
+    <!-- END -->
+    <div class="node-terminal t-slate" style="box-shadow:0 0 16px rgba(148,163,184,0.1);margin-bottom:20px;">
+      ✅ &nbsp;Pipeline Complete &nbsp;·&nbsp; All connections closed (finally block)
+    </div>
+
+  </div><!-- end flowchart -->
+
+</div><!-- end fc-canvas -->
+</div><!-- end viewDev -->
+
+<!-- ═══════════════ BUSINESS VIEW ═══════════════ -->
+<div class="view" id="viewBiz">
+<div class="fc-canvas">
+
+  <div class="biz-hero">
+    <div class="biz-h">Invoice OCR Accuracy Pipeline</div>
+    <div class="biz-sub">Automated daily run · Processes yesterday's invoice scan events · Results in BigQuery by morning</div>
+  </div>
+  <div class="pill-row">
+    <div class="pill" style="border-color:rgba(52,211,153,0.3);color:var(--c-g);background:rgba(52,211,153,0.05);">✅ Fully Automated</div>
+    <div class="pill" style="border-color:rgba(34,211,238,0.3);color:var(--c-c);background:rgba(34,211,238,0.05);">📅 Daily · T-1 Window</div>
+    <div class="pill" style="border-color:rgba(167,139,250,0.3);color:var(--c-p);background:rgba(167,139,250,0.05);">🔄 Idempotent Resume</div>
+    <div class="pill" style="border-color:rgba(251,191,36,0.3);color:var(--c-a);background:rgba(251,191,36,0.05);">⚡ High Throughput</div>
+    <div class="pill" style="border-color:rgba(251,113,133,0.3);color:var(--c-r);background:rgba(251,113,133,0.05);">🛡️ Fault Tolerant</div>
+  </div>
+
+  <div class="node-terminal t-purple" style="box-shadow:0 0 32px rgba(167,139,250,0.3);margin-bottom:0;">🌅 &nbsp;Pipeline Starts Every Morning</div>
+  <div class="conn"><div class="conn-line" style="height:14px;background:rgba(167,139,250,0.8);"><div class="anim-dot" style="background:#a78bfa;"></div></div><div class="conn-arrow" style="color:#a78bfa;">▼</div></div>
+
+  <div class="biz-phase" style="border-color:rgba(167,139,250,0.28);max-width:820px;">
+    <div class="biz-phase-bar" style="background:linear-gradient(90deg,var(--c-p),transparent);"></div>
+    <div class="biz-phase-hdr"><div class="biz-phase-icon">⚙️</div><div><div class="biz-phase-title" style="color:var(--c-p);">System Startup</div><div class="biz-phase-sub">Phase 0 · Initialisation · ~5 seconds</div></div><div class="biz-phase-badge" style="color:var(--c-p);border-color:rgba(167,139,250,0.3);background:rgba(167,139,250,0.08);">Automated</div></div>
+    <div class="biz-cards">
+      <div class="biz-card"><div class="biz-card-icon">📅</div><div class="biz-card-title" style="color:var(--c-p);">Sets the Processing Window</div><div class="biz-card-text">Automatically targets yesterday's data (00:00–23:59 IST). Remembers exactly where the last run stopped — nothing is ever processed twice, even after a crash or restart.</div></div>
+      <div class="biz-card"><div class="biz-card-icon">🔌</div><div class="biz-card-title" style="color:var(--c-p);">Opens All 4 Connections</div><div class="biz-card-text">Connects simultaneously to Kafka (event stream), MongoDB (OCR results), MySQL (vendor master), and BigQuery (reporting warehouse) using optimised connection pools.</div></div>
+      <div class="biz-card"><div class="biz-card-icon">📋</div><div class="biz-card-title" style="color:var(--c-p);">Prepares the Report Table</div><div class="biz-card-text">Verifies the BigQuery 25-column table exists. Creates it automatically if missing — zero manual setup required, even on first ever run.</div></div>
+    </div>
+    <div class="biz-mini-row">
+      <div class="biz-mini"><div class="biz-mini-v" style="color:var(--c-p);">4</div><div class="biz-mini-l">systems connected</div></div>
+      <div class="biz-mini"><div class="biz-mini-v" style="color:var(--c-p);">25</div><div class="biz-mini-l">BQ columns</div></div>
+      <div class="biz-mini"><div class="biz-mini-v" style="color:var(--c-p);">0</div><div class="biz-mini-l">duplicate rows ever</div></div>
+      <div class="biz-mini"><div class="biz-mini-v" style="color:var(--c-p);">~5s</div><div class="biz-mini-l">startup time</div></div>
+    </div>
+  </div>
+  <div class="conn"><div class="conn-line" style="height:12px;background:linear-gradient(180deg,rgba(167,139,250,0.8),rgba(52,211,153,0.8));"><div class="anim-dot" style="background:#34d399;animation-delay:0.1s;"></div></div><div class="conn-label">Begin reading yesterday's invoice scan events from Kafka</div><div class="conn-line" style="height:8px;background:rgba(52,211,153,0.8);"><div class="anim-dot" style="background:#34d399;animation-delay:0.4s;"></div></div><div class="conn-arrow" style="color:#34d399;">▼</div></div>
+
+  <div class="biz-phase" style="border-color:rgba(52,211,153,0.28);max-width:820px;">
+    <div class="biz-phase-bar" style="background:linear-gradient(90deg,var(--c-g),transparent);"></div>
+    <div class="biz-phase-hdr"><div class="biz-phase-icon">📨</div><div><div class="biz-phase-title" style="color:var(--c-g);">Read Invoice Scan Events</div><div class="biz-phase-sub">Phase 1 · Kafka Consumer · Streaming · Batched in groups of 100</div></div><div class="biz-phase-badge" style="color:var(--c-g);border-color:rgba(52,211,153,0.3);background:rgba(52,211,153,0.08);">High Throughput</div></div>
+    <div class="biz-cards">
+      <div class="biz-card"><div class="biz-card-icon">📥</div><div class="biz-card-title" style="color:var(--c-g);">What Comes In</div><div class="biz-card-text">Each event represents a completed invoice scan — contains PO ID, vendor GSTIN, invoice number, expected amount, expected date, and the file URL of the scanned image.</div></div>
+      <div class="biz-card"><div class="biz-card-icon">🔍</div><div class="biz-card-title" style="color:var(--c-g);">Smart Filtering</div><div class="biz-card-text">Automatically skips events already processed in prior runs. Only reads events within yesterday's window. Stops precisely at midnight — no cross-day data bleed ever occurs.</div></div>
+      <div class="biz-card"><div class="biz-card-icon">⚡</div><div class="biz-card-title" style="color:var(--c-g);">Batched — Not One-by-One</div><div class="biz-card-text">Events collected in groups of 100 before any DB lookup. This reduces MongoDB queries by up to 100× versus the original design, dramatically speeding up the daily run.</div></div>
+    </div>
+    <div class="biz-outcomes">
+      <div class="biz-outcome" style="border-color:rgba(52,211,153,0.3);background:rgba(52,211,153,0.04);"><div class="biz-outcome-val" style="color:var(--c-g);">✅ Valid</div><div class="biz-outcome-lbl">Has PO ID · In time window</div></div>
+      <div class="biz-outcome" style="border-color:rgba(251,113,133,0.3);background:rgba(251,113,133,0.04);"><div class="biz-outcome-val" style="color:var(--c-r);">⚠️ No PO ID</div><div class="biz-outcome-lbl">Recorded as MISSING, skipped</div></div>
+      <div class="biz-outcome" style="border-color:rgba(148,163,184,0.3);background:rgba(148,163,184,0.04);"><div class="biz-outcome-val" style="color:#94a3b8;">⏭️ Already Done</div><div class="biz-outcome-lbl">Silently skipped</div></div>
+    </div>
+  </div>
+  <div class="conn"><div class="conn-line" style="height:12px;background:linear-gradient(180deg,rgba(52,211,153,0.8),rgba(110,231,183,0.8));"><div class="anim-dot" style="background:#6ee7b7;animation-delay:0.2s;"></div></div><div class="conn-label">Batch of 100 PO IDs → look up OCR scan results in MongoDB</div><div class="conn-line" style="height:8px;background:rgba(110,231,183,0.8);"><div class="anim-dot" style="background:#6ee7b7;animation-delay:0.45s;"></div></div><div class="conn-arrow" style="color:#6ee7b7;">▼</div></div>
+
+  <div class="biz-phase" style="border-color:rgba(110,231,183,0.28);max-width:820px;">
+    <div class="biz-phase-bar" style="background:linear-gradient(90deg,var(--c-e),transparent);"></div>
+    <div class="biz-phase-hdr"><div class="biz-phase-icon">🔎</div><div><div class="biz-phase-title" style="color:var(--c-e);">Look Up OCR Scan Results</div><div class="biz-phase-sub">Phase 1b · MongoDB + Smart In-Memory Cache · 1 DB query per 100 events</div></div><div class="biz-phase-badge" style="color:var(--c-e);border-color:rgba(110,231,183,0.3);background:rgba(110,231,183,0.08);">Intelligent Caching</div></div>
+    <div class="biz-cards">
+      <div class="biz-card"><div class="biz-card-icon">🗄️</div><div class="biz-card-title" style="color:var(--c-e);">What We Match</div><div class="biz-card-text">For each scan event, we find the matching OCR result in MongoDB — contains what the OCR engine extracted from the invoice image: date, total amount, GSTIN, and QR code status.</div></div>
+      <div class="biz-card"><div class="biz-card-icon">⚡</div><div class="biz-card-title" style="color:var(--c-e);">In-Memory Smart Cache</div><div class="biz-card-text">Recent lookups cached in memory (5,000 entries). Same PO ID appearing again = zero database queries. O(1) eviction — always fast, never stale, never wastes memory.</div></div>
+      <div class="biz-card"><div class="biz-card-icon">📊</div><div class="biz-card-title" style="color:var(--c-e);">Quality Assessment</div><div class="biz-card-text">Each matched result assessed: Was the invoice date extracted? Was the total captured? Was the scan within the SLA time? Determines one of 7 match quality statuses for reporting.</div></div>
+    </div>
+    <div class="biz-outcomes">
+      <div class="biz-outcome" style="border-color:rgba(52,211,153,0.3);background:rgba(52,211,153,0.04);"><div class="biz-outcome-val" style="color:var(--c-g);">✅ MATCHED</div><div class="biz-outcome-lbl">OCR found and complete</div></div>
+      <div class="biz-outcome" style="border-color:rgba(251,113,133,0.3);background:rgba(251,113,133,0.04);"><div class="biz-outcome-val" style="color:var(--c-r);">❌ NOT FOUND</div><div class="biz-outcome-lbl">No OCR result in database</div></div>
+      <div class="biz-outcome" style="border-color:rgba(251,191,36,0.3);background:rgba(251,191,36,0.04);"><div class="biz-outcome-val" style="color:var(--c-a);">⚠️ INCOMPLETE</div><div class="biz-outcome-lbl">Missing date / total / slow</div></div>
+    </div>
+    <div class="biz-mini-row">
+      <div class="biz-mini"><div class="biz-mini-v" style="color:var(--c-e);">5,000</div><div class="biz-mini-l">LRU cache entries</div></div>
+      <div class="biz-mini"><div class="biz-mini-v" style="color:var(--c-e);">O(1)</div><div class="biz-mini-l">eviction complexity</div></div>
+      <div class="biz-mini"><div class="biz-mini-v" style="color:var(--c-e);">1</div><div class="biz-mini-l">Mongo query / batch</div></div>
+      <div class="biz-mini"><div class="biz-mini-v" style="color:var(--c-e);">7</div><div class="biz-mini-l">match status types</div></div>
+    </div>
+  </div>
+  <div class="conn"><div class="conn-line" style="height:12px;background:linear-gradient(180deg,rgba(110,231,183,0.8),rgba(251,191,36,0.8));"><div class="anim-dot" style="background:#fbbf24;animation-delay:0.25s;"></div></div><div class="conn-label">Classify vendor type — only for NOT FOUND events</div><div class="conn-line" style="height:8px;background:rgba(251,191,36,0.8);"><div class="anim-dot" style="background:#fbbf24;animation-delay:0.5s;"></div></div><div class="conn-arrow" style="color:#fbbf24;">▼</div></div>
+
+  <div class="biz-phase" style="border-color:rgba(251,191,36,0.28);max-width:820px;">
+    <div class="biz-phase-bar" style="background:linear-gradient(90deg,var(--c-a),transparent);"></div>
+    <div class="biz-phase-hdr"><div class="biz-phase-icon">🏷️</div><div><div class="biz-phase-title" style="color:var(--c-a);">Classify Vendor Type</div><div class="biz-phase-sub">Phase 2 · Business Intelligence · MySQL Dim_Sys_Plant · Only NOT FOUND rows</div></div><div class="biz-phase-badge" style="color:var(--c-a);border-color:rgba(251,191,36,0.3);background:rgba(251,191,36,0.08);">Zero-cost for most rows</div></div>
+    <div class="biz-cards">
+      <div class="biz-card"><div class="biz-card-icon">🤔</div><div class="biz-card-title" style="color:var(--c-a);">Why Classify?</div><div class="biz-card-text">When OCR result is missing, we need to understand why. Is this a Moglix vendor — an OCR gap to investigate? Or a Manual/external vendor where no OCR result is expected at all?</div></div>
+      <div class="biz-card"><div class="biz-card-icon">🔍</div><div class="biz-card-title" style="color:var(--c-a);">How It Works</div><div class="biz-card-text">Vendor's GSTIN cross-checked against Dim_Sys_Plant vendor master with business filters (vertical, company ID). Match → Manual vendor (expected gap). No match → Moglix vendor (OCR gap to fix).</div></div>
+      <div class="biz-card"><div class="biz-card-icon">⚡</div><div class="biz-card-title" style="color:var(--c-a);">Zero-Cost for Most Rows</div><div class="biz-card-text">Only NOT FOUND invoices trigger a MySQL query. All matched and incomplete rows tagged "Legit" instantly at zero DB cost. GSTINs are deduplicated — always 1 query per batch.</div></div>
+    </div>
+    <div class="biz-outcomes">
+      <div class="biz-outcome" style="border-color:rgba(52,211,153,0.3);background:rgba(52,211,153,0.04);"><div class="biz-outcome-val" style="color:var(--c-g);">✅ Legit</div><div class="biz-outcome-lbl">OCR found — working as expected</div></div>
+      <div class="biz-outcome" style="border-color:rgba(251,191,36,0.3);background:rgba(251,191,36,0.04);"><div class="biz-outcome-val" style="color:var(--c-a);">📋 Manual</div><div class="biz-outcome-lbl">External vendor — expected gap</div></div>
+      <div class="biz-outcome" style="border-color:rgba(167,139,250,0.3);background:rgba(167,139,250,0.04);"><div class="biz-outcome-val" style="color:var(--c-p);">🔴 Moglix</div><div class="biz-outcome-lbl">OCR gap — investigate</div></div>
+    </div>
+  </div>
+  <div class="conn"><div class="conn-line" style="height:12px;background:linear-gradient(180deg,rgba(251,191,36,0.8),rgba(34,211,238,0.8));"><div class="anim-dot" style="background:#22d3ee;animation-delay:0.15s;"></div></div><div class="conn-label">Write classified records to BigQuery in rolling batches of 500</div><div class="conn-line" style="height:8px;background:rgba(34,211,238,0.8);"><div class="anim-dot" style="background:#22d3ee;animation-delay:0.45s;"></div></div><div class="conn-arrow" style="color:#22d3ee;">▼</div></div>
+
+  <div class="biz-phase" style="border-color:rgba(34,211,238,0.28);max-width:820px;">
+    <div class="biz-phase-bar" style="background:linear-gradient(90deg,var(--c-c),transparent);"></div>
+    <div class="biz-phase-hdr"><div class="biz-phase-icon">📤</div><div><div class="biz-phase-title" style="color:var(--c-c);">Store in Reporting Warehouse</div><div class="biz-phase-sub">Phase 3 · BigQuery Streaming Insert · DAY Partitioned · Rolling writes throughout run</div></div><div class="biz-phase-badge" style="color:var(--c-c);border-color:rgba(34,211,238,0.3);background:rgba(34,211,238,0.08);">Memory Efficient</div></div>
+    <div class="biz-cards">
+      <div class="biz-card"><div class="biz-card-icon">📊</div><div class="biz-card-title" style="color:var(--c-c);">What Gets Stored</div><div class="biz-card-text">Every invoice event stored with 25 data points: 7 raw Kafka fields, 10 OCR results from MongoDB, 1 vendor classification from MySQL, and 7 pipeline-computed fields.</div></div>
+      <div class="biz-card"><div class="biz-card-icon">⚡</div><div class="biz-card-title" style="color:var(--c-c);">Always Rolling, Never Blocking</div><div class="biz-card-text">Records written in batches of 500 throughout the run — not accumulated until end. RAM usage stays flat whether processing 10,000 or 10 million records per day. Fully scalable.</div></div>
+      <div class="biz-card"><div class="biz-card-icon">🌅</div><div class="biz-card-title" style="color:var(--c-c);">Analyst-Ready by Morning</div><div class="biz-card-text">Table partitioned by processing date. Dashboards query only yesterday's partition — fast, cheap queries. Results available the moment the pipeline finishes, ready when your team starts work.</div></div>
+    </div>
+    <div class="biz-outcomes">
+      <div class="biz-outcome" style="border-color:rgba(34,211,238,0.3);background:rgba(34,211,238,0.04);"><div class="biz-outcome-val" style="color:var(--c-c);">📈 Full Day Report</div><div class="biz-outcome-lbl">Every invoice event recorded</div></div>
+      <div class="biz-outcome" style="border-color:rgba(52,211,153,0.3);background:rgba(52,211,153,0.04);"><div class="biz-outcome-val" style="color:var(--c-g);">🎯 OCR Accuracy</div><div class="biz-outcome-lbl">Match rates by vendor & status</div></div>
+      <div class="biz-outcome" style="border-color:rgba(167,139,250,0.3);background:rgba(167,139,250,0.04);"><div class="biz-outcome-val" style="color:var(--c-p);">🏷️ Vendor Split</div><div class="biz-outcome-lbl">Legit / Manual / Moglix</div></div>
+    </div>
+    <div class="biz-mini-row">
+      <div class="biz-mini"><div class="biz-mini-v" style="color:var(--c-c);">500</div><div class="biz-mini-l">rows per BQ write</div></div>
+      <div class="biz-mini"><div class="biz-mini-v" style="color:var(--c-c);">DAY</div><div class="biz-mini-l">partition granularity</div></div>
+      <div class="biz-mini"><div class="biz-mini-v" style="color:var(--c-c);">Flat</div><div class="biz-mini-l">RAM at any volume</div></div>
+      <div class="biz-mini"><div class="biz-mini-v" style="color:var(--c-c);">25</div><div class="biz-mini-l">columns per row</div></div>
+    </div>
+  </div>
+
+  <div class="conn">
+    <div class="conn-line" style="height:12px;background:linear-gradient(180deg,rgba(34,211,238,0.5),rgba(148,163,184,0.2));"></div>
+    <div class="conn-label">Lands in BigQuery · 25 columns · 4 data sources · Partitioned by day</div>
+    <div class="conn-line" style="height:8px;background:rgba(148,163,184,0.15);"></div>
+    <div class="conn-arrow" style="color:rgba(148,163,184,0.3);">▼</div>
+  </div>
+
+  <!-- BQ SCHEMA in BIZ view -->
+  <div class="arch-block">
+    <div class="arch-block-top">
+      <div class="arch-block-icon">🏛️</div>
+      <div>
+        <div class="arch-block-title">ocr_accuracy_results · Live Data Preview</div>
+        <div class="arch-block-sub">project.dataset.ocr_accuracy_results · DAY partition on processing_timestamp · 25 columns</div>
+      </div>
+      <div class="arch-pills">
+        <div class="arch-pill" style="color:#34d399;border-color:rgba(52,211,153,0.3);background:rgba(52,211,153,0.07);">📡 7 Kafka</div>
+        <div class="arch-pill" style="color:#6ee7b7;border-color:rgba(110,231,183,0.3);background:rgba(110,231,183,0.07);">🗄️ 10 MongoDB</div>
+        <div class="arch-pill" style="color:#fbbf24;border-color:rgba(251,191,36,0.3);background:rgba(251,191,36,0.07);">🗃️ 1 MySQL</div>
+        <div class="arch-pill" style="color:#a78bfa;border-color:rgba(167,139,250,0.3);background:rgba(167,139,250,0.07);">⚙️ 7 Pipeline</div>
+      </div>
+    </div>
+    <div class="csv-section">
+      <div class="csv-hdr">
+        <div class="live-dot"></div>
+        <div class="csv-lbl">Live Streaming Rows</div>
+        <div class="csv-sub">· insert_rows_json() · batch_size=500 · rolling mid-pipeline writes</div>
+      </div>
+      <div class="csv-scroll">
+        <table class="csv-table">
+          <thead><tr>
+            <th style="color:#888;">#</th>
+            <th style="color:#34d399;">kafka_timestamp</th>
+            <th style="color:#34d399;">po_id</th>
+            <th style="color:#34d399;">kafka_final_gstin</th>
+            <th style="color:#34d399;">invoice_amount_kafka</th>
+            <th style="color:#34d399;">invoice_date_kafka</th>
+            <th style="color:#6ee7b7;">ocr_invoice_date</th>
+            <th style="color:#6ee7b7;">ocr_invoice_total</th>
+            <th style="color:#6ee7b7;">ocr_qr_detected</th>
+            <th style="color:#fbbf24;">vendor_type</th>
+            <th style="color:#a78bfa;">status</th>
+            <th style="color:#a78bfa;">time_diff_seconds</th>
+            <th style="color:#fda4af;">processing_timestamp ⚑</th>
+          </tr></thead>
+          <tbody id="biz-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="conn">
+    <div class="conn-line" style="height:12px;background:rgba(148,163,184,0.15);"></div>
+    <div class="conn-arrow" style="color:rgba(148,163,184,0.3);">▼</div>
+  </div>
+  <div class="node-terminal t-slate" style="margin-bottom:60px;">✅ &nbsp;Run Complete · Data Ready · Dashboards refresh automatically</div>
+
+</div>
+</div>
+
+<script>
+// ── Mode ──
+function setMode(m){
+  ['Dev','Biz'].forEach(v=>{
+    document.getElementById('view'+v).classList.toggle('active',v.toLowerCase()===m);
+    document.getElementById('btn'+v).classList.toggle('active',v.toLowerCase()===m);
+  });
+  if(m==='dev'){setTimeout(()=>drawWires(),200);}
+}
+
+// ── Flow toggle ──
+let flowOn=true;
+function toggleFlow(){
+  flowOn=!flowOn;
+  const btn=document.getElementById('flowBtn');
+  btn.classList.toggle('flow-on',flowOn);
+  document.querySelectorAll('.anim-dot,.inner-anim').forEach(el=>el.style.animationPlayState=flowOn?'running':'paused');
+}
+
+// ── Arch overlay ──
+function openArch(){document.getElementById('archOverlay').classList.add('open');}
+function closeArch(){document.getElementById('archOverlay').classList.remove('open');}
+function closeArchOutside(e){if(e.target===document.getElementById('archOverlay'))closeArch();}
+
+// ── Wire diagram ──
+const COL_DEFS=[
+  [0,'k','#34d399'],[1,'k','#34d399'],[2,'k','#34d399'],[3,'k','#34d399'],[4,'k','#34d399'],[5,'k','#34d399'],[6,'k','#34d399'],
+  [7,'m','#6ee7b7'],[8,'m','#6ee7b7'],[9,'m','#6ee7b7'],[10,'m','#6ee7b7'],[11,'m','#6ee7b7'],[12,'m','#6ee7b7'],[13,'m','#6ee7b7'],[14,'m','#6ee7b7'],[15,'m','#6ee7b7'],[16,'m','#6ee7b7'],
+  [17,'s','#fbbf24'],
+  [18,'p','#a78bfa'],[19,'p','#a78bfa'],[20,'p','#a78bfa'],[21,'p','#a78bfa'],[22,'p','#a78bfa'],[23,'p','#a78bfa'],[24,'p','#a78bfa'],
+];
+
+function drawWires(){
+  const svg=document.getElementById('cf-svg');
+  const wiresDiv=document.getElementById('cf-wires');
+  if(!svg||!wiresDiv)return;
+  const wRect=wiresDiv.getBoundingClientRect();
+  const W=wRect.width||120;
+  const H=wRect.height||480;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  svg.setAttribute('width',W);svg.setAttribute('height',H);
+  svg.innerHTML='';
+
+  const defs=document.createElementNS('http://www.w3.org/2000/svg','defs');
+  ['k','m','s','p'].forEach(sk=>{
+    const f=document.createElementNS('http://www.w3.org/2000/svg','filter');
+    f.setAttribute('id','glow-'+sk);f.setAttribute('x','-50%');f.setAttribute('y','-50%');
+    f.setAttribute('width','200%');f.setAttribute('height','200%');
+    const blur=document.createElementNS('http://www.w3.org/2000/svg','feGaussianBlur');
+    blur.setAttribute('stdDeviation','2.5');blur.setAttribute('result','coloredBlur');
+    const merge=document.createElementNS('http://www.w3.org/2000/svg','feMerge');
+    const mn1=document.createElementNS('http://www.w3.org/2000/svg','feMergeNode');mn1.setAttribute('in','coloredBlur');
+    const mn2=document.createElementNS('http://www.w3.org/2000/svg','feMergeNode');mn2.setAttribute('in','SourceGraphic');
+    merge.appendChild(mn1);merge.appendChild(mn2);f.appendChild(blur);f.appendChild(merge);defs.appendChild(f);
+  });
+  svg.appendChild(defs);
+
+  const srcEls={k:document.getElementById('cf-src-k'),m:document.getElementById('cf-src-m'),s:document.getElementById('cf-src-s'),p:document.getElementById('cf-src-p')};
+  const srcColors={k:'#34d399',m:'#6ee7b7',s:'#fbbf24',p:'#a78bfa'};
+
+  function relY(el){if(!el)return H/2;const r=el.getBoundingClientRect();return(r.top+r.height/2)-wRect.top;}
+  function dotY(i){const el=document.getElementById('cf-dot-'+i);if(!el)return H/2;const r=el.getBoundingClientRect();return(r.top+r.height/2)-wRect.top;}
+
+  COL_DEFS.forEach(([i,sk,color])=>{
+    const srcEl=srcEls[sk];if(!srcEl)return;
+    const y0=relY(srcEl),y1=dotY(i);
+    if(y1<-10||y1>H+10)return;
+    const x0=0,x1=W-2;
+    const cx0=x0+W*0.4,cx1=x1-W*0.4;
+    const pathD=`M${x0},${y0} C${cx0},${y0} ${cx1},${y1} ${x1},${y1}`;
+    const pid=`wire-${i}`;
+    const g=document.createElementNS('http://www.w3.org/2000/svg','path');
+    g.setAttribute('d',pathD);g.setAttribute('stroke',color);g.setAttribute('stroke-width','3');
+    g.setAttribute('fill','none');g.setAttribute('opacity','0.07');g.setAttribute('filter',`url(#glow-${sk})`);
+    svg.appendChild(g);
+    const w=document.createElementNS('http://www.w3.org/2000/svg','path');
+    w.setAttribute('id',pid);w.setAttribute('d',pathD);w.setAttribute('stroke',color);
+    w.setAttribute('stroke-width','1.2');w.setAttribute('fill','none');w.setAttribute('opacity','0.5');
+    w.setAttribute('stroke-dasharray','4 3');
+    w.style.animation=`wireDash ${1.2+i*0.04}s linear infinite`;
+    w.style.animationDelay=(i*0.05)+'s';
+    svg.appendChild(w);
+    const dot=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    dot.setAttribute('r','2.3');dot.setAttribute('fill',color);dot.setAttribute('opacity','0.95');
+    dot.setAttribute('filter',`url(#glow-${sk})`);
+    const am=document.createElementNS('http://www.w3.org/2000/svg','animateMotion');
+    am.setAttribute('dur',(1.5+i*0.08)+'s');am.setAttribute('repeatCount','indefinite');
+    am.setAttribute('calcMode','spline');am.setAttribute('keyTimes','0;1');
+    am.setAttribute('keySplines','0.4 0 0.6 1');am.setAttribute('begin',(i*0.06)+'s');
+    const mp=document.createElementNS('http://www.w3.org/2000/svg','mpath');
+    mp.setAttribute('href','#'+pid);am.appendChild(mp);dot.appendChild(am);svg.appendChild(dot);
+    const td=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    td.setAttribute('cx',x1);td.setAttribute('cy',y1);td.setAttribute('r','2');
+    td.setAttribute('fill',color);td.setAttribute('opacity','0.65');svg.appendChild(td);
+  });
+
+  ['k','m','s','p'].forEach(sk=>{
+    const el=srcEls[sk];if(!el)return;
+    const sy=relY(el),color=srcColors[sk];
+    const od=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    od.setAttribute('cx','0');od.setAttribute('cy',sy);od.setAttribute('r','4');
+    od.setAttribute('fill',color);od.setAttribute('opacity','0.9');
+    od.setAttribute('filter',`url(#glow-${sk})`);
+    const pa=document.createElementNS('http://www.w3.org/2000/svg','animate');
+    pa.setAttribute('attributeName','r');pa.setAttribute('values','3;5.5;3');
+    pa.setAttribute('dur','1.8s');pa.setAttribute('repeatCount','indefinite');
+    od.appendChild(pa);svg.appendChild(od);
+  });
+}
+
+// ── CSV streaming ──
+const STATUSES=['MATCHED','MATCHED','MATCHED','PO_ID_NOT_FOUND','INVOICE_DATE_MISSING','INVOICE_TOTAL_MISSING','TIME_BUFFER_EXCEEDED','MONGO_ALL_EMPTY'];
+const GSTINS=['27AABCM1596J1ZQ','29AABCP6984L1ZS','07AAACT2727Q1Z4','33AABCE4747C1ZN'];
+const PO_IDS=['PO-2024-88421','PO-2024-88422','PO-2024-88423','PO-2024-88424','PO-2024-88425'];
+const AMTS=[14250.00,87300.50,3400.00,126000.00,9875.25];
+let rowCtrs={dev:1,biz:1};
+function rnd(a){return a[Math.floor(Math.random()*a.length)];}
+function fmtTs(ms){return new Date(ms).toISOString().replace('T',' ').slice(0,19);}
+
+function makeRow(){
+  const st=rnd(STATUSES),ok=st==='MATCHED';
+  const vt=st==='PO_ID_NOT_FOUND'?(Math.random()>0.5?'Moglix':'Manual'):'Legit';
+  const kts=Date.now()-Math.floor(Math.random()*3600000);
+  const mts=kts+Math.floor(Math.random()*30000);
+  return{kts:String(kts),po:rnd(PO_IDS),gstin:rnd(GSTINS),amt:rnd(AMTS).toFixed(2),invDate:'2024-10-15',
+    ocrDate:ok?'2024-10-15':'',ocrTotal:ok?rnd(AMTS).toFixed(2):'',qr:ok?(Math.random()>0.35?'true':'false'):'false',
+    vt,status:st,diff:((mts-kts)/1000).toFixed(2),pts:fmtTs(Date.now())};
+}
+function sc(s){if(s==='MATCHED')return'cv-ok';if(s.includes('MISSING')||s.includes('EMPTY')||s.includes('EXCEEDED'))return'cv-warn';return'cv-err';}
+function vc(v){if(v==='Legit')return'cv-ok';if(v==='Manual')return'cv-warn';return'cv-err';}
+
+function appendRow(tbodyId,key){
+  const tbody=document.getElementById(tbodyId);if(!tbody)return;
+  const d=makeRow(),n=rowCtrs[key]++;
+  const tr=document.createElement('tr');tr.className='fresh-row';
+  tr.innerHTML=`
+    <td style="color:rgba(255,255,255,0.3);width:26px;">${n}</td>
+    <td class="cv-k">${d.kts}</td><td class="cv-k">${d.po}</td><td class="cv-k">${d.gstin}</td>
+    <td class="cv-num">${d.amt}</td><td class="cv-k">${d.invDate}</td>
+    <td class="${d.ocrDate?'cv-m':'cv-null'}">${d.ocrDate||'null'}</td>
+    <td class="${d.ocrTotal?'cv-m':'cv-null'}">${d.ocrTotal||'null'}</td>
+    <td class="cv-m">${d.qr}</td>
+    <td class="${vc(d.vt)}">${d.vt}</td>
+    <td class="${sc(d.status)}">${d.status}</td>
+    <td class="cv-num">${d.diff}</td>
+    <td class="cv-ts">${d.pts}</td>`;
+  tbody.insertBefore(tr,tbody.firstChild);
+  for(let i=0;i<25;i++){const r=document.getElementById('cf-col-'+i);if(r){r.classList.remove('col-flash');void r.offsetWidth;r.classList.add('col-flash');}}
+  while(tbody.children.length>6)tbody.removeChild(tbody.lastChild);
+}
+
+window.addEventListener('load',()=>{
+  setTimeout(()=>{
+    for(let i=0;i<5;i++){appendRow('dev-tbody','dev');appendRow('biz-tbody','biz');}
+    drawWires();
+    setInterval(()=>appendRow('dev-tbody','dev'),2000);
+    setInterval(()=>appendRow('biz-tbody','biz'),2400);
+  },500);
+});
+window.addEventListener('resize',()=>{clearTimeout(window._rt);window._rt=setTimeout(()=>drawWires(),200);});
+</script>
+</body>
+</html>
